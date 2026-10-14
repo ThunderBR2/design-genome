@@ -101,7 +101,7 @@ export const buildGenome = async (project: Project): Promise<Genome> => {
   const kinds = new Set(project.sources.map((s) => s.kind));
   if (!kinds.has("web") && !kinds.has("figma")) unknowns.push("No exact source (site or Figma): every size and color is estimated from pixels.");
   if (!project.sources.some((s) => s.options.colorScheme === "dark")) unknowns.push("Dark appearance not sampled; add a site with options.colorScheme = dark to learn it.");
-  if (!extractions.some((e) => e.extractor === "vision") && (kinds.has("image") || kinds.has("video"))) unknowns.push("Art direction of images/video (lighting, camera, framing) is unnamed: run extraction with --vision.");
+  if (!extractions.some((e) => e.extractor === "vision") && (kinds.has("image") || kinds.has("video"))) unknowns.push("Art direction of images/video (lighting, camera, framing) is unnamed: ask Claude to run the vision pass (genome_vision_request), or extract with --vision and an API key.");
   if (!kinds.has("document")) unknowns.push("No brand document: intent cannot be compared with practice.");
 
   const sources: GenomeSource[] = project.sources.map((s) => {

@@ -184,7 +184,7 @@
       <button class="drop" id="drop" type="button">Drop images, videos, PDFs or notes here<br><span class="faint">or click to choose files</span></button>
       <input type="file" id="files" multiple hidden accept="image/*,video/*,.pdf,.md,.txt,.html">
       <label class="check"><input type="checkbox" id="dark"> Render links in dark appearance</label>
-      <label class="check"><input type="checkbox" id="vision"> Name art direction with the vision model</label>
+      <label class="check" title="Needs ANTHROPIC_API_KEY on this computer. Without a key, ask Claude to run the vision pass through the MCP connection."><input type="checkbox" id="vision"> Name art direction with the vision model (API key)</label>
       <button class="btn" id="run">Extract and cross-check</button>
     </div>
     <ul class="sources" id="sources"></ul>

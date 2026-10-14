@@ -28,7 +28,7 @@ A ideia vem do [REA](https://github.com/morluto/rea), que faz engenharia reversa
 | **Documento** (PDF, Markdown, TXT, HTML) | Texto extraído e interpretado, em português e inglês | declarada | Paleta oficial com Pantone/CMYK, tipografia declarada, regras ("nunca", "sempre", "evite", "mínimo de 12px"), unidade de grid |
 | **Imagem** | Análise de pixels em OKLab | estimada | Paleta com área e região, luminosidade, contraste, saturação, temperatura, espaço negativo, simetria, ponto focal, margens |
 | **Vídeo** | ffmpeg: detecção de cortes, quadros por plano | estimada | Ritmo de montagem (duração de plano, cortes por minuto, regularidade), paleta e grade de cor por plano, intensidade de movimento |
-| **Visão** (opcional) | Modelo multimodal sobre as evidências já extraídas | inferida | Iluminação, ângulo e tamanho de plano, fundo, composição, tratamento tipográfico, regras de direção de arte |
+| **Visão** (opcional) | O próprio Claude conectado via MCP olha as evidências já extraídas (sem chave de API); ou, sem o Claude, a API com `--vision` | inferida | Iluminação, ângulo e tamanho de plano, fundo, composição, tratamento tipográfico, regras de direção de arte |
 
 Várias fontes da mesma marca se reforçam. Fontes de marcas diferentes podem ser combinadas num mesmo projeto para criar um genoma híbrido.
 
@@ -141,6 +141,21 @@ Ferramentas:
 | `genome_verify` | Mede uma página ou imagem e devolve a nota e os desvios |
 | `genome_export` | Tokens W3C, CSS, Tailwind, brief ou direção de imagem |
 
+### Visão pelo seu plano do Claude
+
+A leitura de direção de arte (iluminação, ângulo, enquadramento, tratamento tipográfico) não precisa de chave de API. Com o MCP conectado, o próprio Claude da conversa faz esse papel:
+
+1. `genome_vision_request` entrega ao Claude até 8 imagens numeradas de uma fonte (fotos, quadros do filme, recortes da página).
+2. O Claude olha e responde com `genome_vision_submit`: regras e rótulos, cada um citando as imagens.
+3. O genoma é reconstruído. Uma regra que o Claude viu e que o brand book também declara vira **confirmada** por duas fontes.
+
+Basta pedir: "rode a passada de visão em todas as fontes". O caminho com `ANTHROPIC_API_KEY` (`genome extract --vision`) continua existindo para rodar sem o Claude, por exemplo no Studio ou em tarefas agendadas.
+
+| Ferramenta extra | Para quê |
+|---|---|
+| `genome_vision_request` | Imagens da próxima fonte sem leitura, para o Claude analisar |
+| `genome_vision_submit` | Guarda o que o Claude viu e reconstrói o genoma |
+
 Junto vem uma skill para agentes em [`skills/design-genome/SKILL.md`](skills/design-genome/SKILL.md), que ensina a ler o genoma, quanto confiar em cada status e a fechar o ciclo com `genome_verify`.
 
 ## Verificação
@@ -217,7 +232,7 @@ O teste de ponta a ponta roda o pipeline real com quatro fontes de uma marca fic
 ## Limitações conhecidas
 
 - Folhas de estilo de outros domínios não expõem media queries e variáveis ao navegador; os estilos computados continuam medidos. Isso aparece como limitação da fonte.
-- Tipografia e componentes dentro de imagens e vídeos só são nomeados com o modelo de visão (`--vision`, precisa de `ANTHROPIC_API_KEY`).
+- Tipografia e componentes dentro de imagens e vídeos só são nomeados pela passada de visão (pelo Claude via MCP, ou `--vision` com chave de API).
 - Movimentos de câmera, áudio e trilha ainda não são analisados.
 - Variáveis e protótipos do Figma não vêm pela API de arquivos.
 - O modo escuro só é aprendido se você adicionar o site com `--dark`.

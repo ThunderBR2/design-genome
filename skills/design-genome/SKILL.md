@@ -44,6 +44,15 @@ After producing a page, render it (URL or local HTML file) and call
 generated images, verify the image file: palette and imagery statistics are
 compared with the genome.
 
+## Reading images yourself
+
+You are the vision model; no API key is involved. After sources are
+extracted, call `genome_vision_request` (it picks the next source without a
+reading), look at the numbered images as an art director, and call
+`genome_vision_submit` with rules and labels that cite image numbers. Repeat
+while sources remain. Describe only what is visible. Rules that other sources
+also show (the brand book, other films or shoots) become confirmed.
+
 ## Learning a new system
 
 Use `genome_add_sources` with the user's links and files. Start with an exact

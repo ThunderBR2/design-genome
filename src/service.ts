@@ -5,10 +5,11 @@ import type { Genome } from "./core/genome.js";
 import { Project, type AddSourceInput } from "./core/project.js";
 import type { Source } from "./core/model.js";
 import { EXPORT_FORMATS, exportGenome, type ExportFormat } from "./export/index.js";
-import { extractSources, type ExtractOutcome } from "./extractors/index.js";
+import { PRIMARY, extractSources, type ExtractOutcome } from "./extractors/index.js";
 import { queryGenome, type Facet, type QueryOptions } from "./query.js";
 import { buildGenome } from "./reconcile/build.js";
 import { verify, type VerifyReport } from "./verify/index.js";
+import { visionExtraction, visionImages, type VisionImage, type VisionReply } from "./extractors/vision.js";
 
 export const DEFAULT_PROJECT_DIR = process.env.GENOME_PROJECT ?? ".genome";
 
@@ -60,6 +61,39 @@ export class GenomeService {
     const outcomes = await this.extract(sources.map((s) => s.id), options);
     const genome = await this.build();
     return { sources, outcomes, genome };
+  }
+
+  /** Sources whose images have been extracted but not yet read by a vision pass. */
+  async visionPending(): Promise<Source[]> {
+    const project = await this.project();
+    const out: Source[] = [];
+    for (const s of project.sources) {
+      if (!["image", "video", "web"].includes(s.kind)) continue;
+      if (!(await project.hasExtraction(s.id, PRIMARY[s.kind].name))) continue;
+      if (await project.hasExtraction(s.id, "vision")) continue;
+      out.push(s);
+    }
+    return out;
+  }
+
+  /** Images for the host model to read. Defaults to the next source without a vision reading. */
+  async visionRequest(sourceId?: string, maxWidth = 1024): Promise<{ source: Source; images: VisionImage[]; remaining: number } | null> {
+    const project = await this.project();
+    const pending = await this.visionPending();
+    const source = sourceId ? project.source(sourceId) : pending[0];
+    if (!source) return null;
+    const images = await visionImages(project, source, maxWidth);
+    return { source, images, remaining: pending.filter((s) => s.id !== source.id).length };
+  }
+
+  /** Store what the host model read from genome_vision_request images, then rebuild. */
+  async visionSubmit(sourceId: string, reply: VisionReply, reader: string): Promise<{ observations: number; genome: Genome }> {
+    const project = await this.project();
+    const source = project.source(sourceId);
+    const images = await visionImages(project, source, 64);
+    const extraction = visionExtraction(source, images, reply, reader);
+    await project.saveExtraction(extraction);
+    return { observations: extraction.observations.length, genome: await this.build() };
   }
 
   async genome(): Promise<Genome> {

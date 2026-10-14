@@ -101,6 +101,25 @@ describe("full pipeline", () => {
     expect(off.violations.some((v) => v.facet === "spacing")).toBe(true);
   });
 
+  it("lets the host model read images and cross-checks what it saw", async () => {
+    const pending = await svc.visionPending();
+    expect(pending.map((s) => s.kind).sort()).toEqual(["image", "video", "web"]);
+    const film = pending.find((s) => s.kind === "video")!;
+    const request = await svc.visionRequest(film.id);
+    expect(request?.images.length).toBeGreaterThan(1);
+    expect(request?.images[0]!.jpeg.subarray(0, 2).toString("hex")).toBe("ffd8");
+    const reading = { rules: [{ topic: "imagery", statement: "The product is always shown on a seamless light background.", polarity: "must", confidence: 0.8, images: [1, 2] }], labels: [{ metric: "background", label: "seamless studio", confidence: 0.8, images: [1] }] };
+    const { observations, genome: withVision } = await svc.visionSubmit(film.id, reading, "test host");
+    expect(observations).toBe(2);
+    const shot = (await svc.project()).sources.find((s) => s.label === "screenshot")!;
+    const after = (await svc.visionSubmit(shot.id, { rules: [{ topic: "imagery", statement: "Products sit on a seamless light background with no props.", polarity: "must", confidence: 0.7, images: [1] }] }, "test host")).genome;
+    const declared = after.rules.find((r) => r.statement.startsWith("Photography should always show the product on a seamless light background"))!;
+    expect(declared.support.status).toBe("confirmed");
+    expect(declared.support.sources.map((s) => s.precision)).toEqual(expect.arrayContaining(["declared", "inferred"]));
+    expect(withVision.imagery.some((m) => m.metric === "background" && m.label === "seamless studio")).toBe(true);
+    genome = after;
+  });
+
   it("records decisions and exports a brief that carries them", async () => {
     const conflict = genome.conflicts.find((c) => c.description.includes("requires Helvetica Neue"))!;
     const rebuilt = await svc.resolve(conflict.id, "Follow the site: Inter");
