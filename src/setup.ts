@@ -72,6 +72,21 @@ export const claudeDesktopConfigCandidates = (): string[] => {
   return [join(home, ".config", "Claude", "claude_desktop_config.json")];
 };
 
+/** Folders holding ffmpeg/ffprobe/pdftoppm on this machine's current PATH. */
+export const toolDirs = async (): Promise<string[]> => {
+  const dirs = new Set<string>();
+  for (const name of ["ffmpeg", "ffprobe", "pdftoppm"]) {
+    try {
+      const { stdout } = await run(isWin ? "where" : "which", [name], { timeout: 10_000 });
+      const first = stdout.split(/\r?\n/).find(Boolean);
+      if (first) dirs.add(dirname(first.trim()));
+    } catch {
+      /* not installed */
+    }
+  }
+  return [...dirs];
+};
+
 export const mcpServerEntry = (projectDir: string, env: Record<string, string> = {}) => ({
   command: process.execPath,
   args: [cliPath(), "-p", resolve(projectDir), "mcp"],
@@ -101,7 +116,9 @@ export const installClaudeDesktop = async (projectDir: string, env: Record<strin
   }
   const servers = (config.mcpServers as Record<string, unknown> | undefined) ?? {};
   const previous = (servers["design-genome"] as { env?: Record<string, string> } | undefined)?.env ?? {};
-  servers["design-genome"] = mcpServerEntry(projectDir, { ...previous, ...env });
+  const tools = await toolDirs();
+  const toolPath: Record<string, string> = tools.length ? { GENOME_TOOL_PATH: tools.join(isWin ? ";" : ":") } : {};
+  servers["design-genome"] = mcpServerEntry(projectDir, { ...previous, ...toolPath, ...env });
   config.mcpServers = servers;
   await writeFile(path, `${JSON.stringify(config, null, 2)}\n`);
   return { path, backup };

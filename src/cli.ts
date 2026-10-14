@@ -7,6 +7,14 @@ import { EXPORT_FORMATS, type ExportFormat } from "./export/index.js";
 import { FACETS, type Facet } from "./query.js";
 import { DEFAULT_PROJECT_DIR, GenomeService } from "./service.js";
 
+// Tool folders (ffmpeg, poppler) recorded at setup, so apps that launch us with a
+// stale PATH (Claude Desktop started before the install) still find them.
+if (process.env.GENOME_TOOL_PATH) {
+  const sep = process.platform === "win32" ? ";" : ":";
+  process.env.PATH = `${process.env.GENOME_TOOL_PATH}${sep}${process.env.PATH ?? ""}`;
+  if (process.platform === "win32") process.env.Path = process.env.PATH;
+}
+
 const program = new Command();
 program
   .name("genome")
