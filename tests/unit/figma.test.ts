@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { figmaFileKey, observeFigmaDocument } from "../../src/extractors/figma.js";
+import { figmaFileKey, figmaNodeId, observeFigmaDocument } from "../../src/extractors/figma.js";
 import { ObservationCollector } from "../../src/extractors/support.js";
 
 describe("figma extractor", () => {
   it("parses file keys", () => {
     expect(figmaFileKey("https://www.figma.com/design/AbC123xyz/My-File?node-id=1-2")).toBe("AbC123xyz");
+    expect(figmaNodeId("https://www.figma.com/design/AbC123xyz/My-File?node-id=12-345")).toBe("12:345");
+    expect(figmaNodeId("https://www.figma.com/design/AbC123xyz/My-File")).toBeNull();
   });
 
   it("reads fills, text styles, radii, auto-layout and shadows as exact observations", () => {

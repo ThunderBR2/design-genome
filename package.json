@@ -4,7 +4,7 @@
   "description": "Reverse engineering for design: ingest sites, documents, images, videos and Figma files, cross-check every fact with evidence, and give AI agents a verified design genome.",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json && chmod +x dist/cli.js",
+    "build": "tsc -p tsconfig.json && node -e \"try{require('fs').chmodSync('dist/cli.js',0o755)}catch{}\"",
     "dev": "tsx src/cli.ts",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",

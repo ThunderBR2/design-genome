@@ -60,6 +60,8 @@ flowchart LR
 
 ## Começando
 
+> **Guia passo a passo:** [das referências à marca no Figma](docs/comecando.md) — instalar, conectar ao Claude Desktop junto com o Figma, subir referências e construir.
+
 Requisitos: Node.js 22+, ffmpeg (para vídeo) e, opcionalmente, poppler (`pdftoppm`) para as miniaturas de PDF.
 
 ```bash
@@ -69,6 +71,7 @@ npm install
 npx playwright install chromium
 npm run build
 npm link            # deixa o comando "genome" disponível
+genome doctor       # confere Chromium, ffmpeg e opcionais
 ```
 
 Crie um projeto e alimente:
@@ -110,6 +113,15 @@ A faixa colorida ao lado de cada fato mostra quais fontes o sustentam: preenchid
 ## Para a sua IA (MCP)
 
 O servidor MCP expõe o genoma para Claude Code, Claude Desktop, Cursor ou qualquer cliente MCP.
+
+O jeito mais rápido no Claude Desktop:
+
+```bash
+genome -p /caminho/do/projeto mcp-config --install                 # adiciona à config, com backup
+genome -p /caminho/do/projeto mcp-config --install --figma-token T # e libera a verificação de arquivos do Figma
+```
+
+Depois feche e reabra o Claude Desktop. O conector também traz o prompt pronto **Criar marca no Figma a partir do genoma**. Para configurar à mão:
 
 ```bash
 # Claude Code

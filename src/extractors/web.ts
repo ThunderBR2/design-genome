@@ -1,3 +1,5 @@
+import { pathToFileURL } from "node:url";
+
 import sharp from "sharp";
 
 import { normalizeColor } from "../core/color.js";
@@ -91,10 +93,13 @@ export const webExtractor: Extractor = {
     const collector = new ObservationCollector(source.id, "web", "exact");
     const limitations: string[] = [];
     const meta: Record<string, unknown> = { viewports, renderedFonts: {} as Record<string, string[]> };
+    // A saved page (local .html added with kind "web") renders from its stored copy.
+    const local = project.localPath(source);
+    const target = local ? pathToFileURL(local).href : source.uri;
     const browser = await chromium.launch({ headless: true });
     try {
       for (const viewport of viewports) {
-        log(`web: rendering ${source.uri} at ${viewport}px`);
+        log(`web: rendering ${target} at ${viewport}px`);
         const context = await browser.newContext({
           viewport: { width: viewport, height: viewport < 700 ? 844 : 900 },
           deviceScaleFactor: 1,
@@ -105,7 +110,7 @@ export const webExtractor: Extractor = {
         await context.addInitScript("window.__name = (f) => f;");
         const page = await context.newPage();
         try {
-          await page.goto(source.uri, { waitUntil: "load", timeout: 60_000 });
+          await page.goto(target, { waitUntil: "load", timeout: 60_000 });
           await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => limitations.push(`Network never went idle at ${viewport}px; late content may be missing.`));
           await page.evaluate("window.__name = (f) => f;");
           await autoScroll(page);

@@ -120,6 +120,16 @@ describe("full pipeline", () => {
     genome = after;
   });
 
+  it("reads a saved page added as a web source", async () => {
+    const other = new GenomeService(join(dir, "saved"));
+    await other.init("Saved page");
+    const [saved] = await other.add([{ uri: join(fixtures, "site", "index.html"), kind: "web", label: "saved page" }]);
+    const [outcome] = await other.extract([saved!.id]);
+    expect(outcome?.status).toBe("extracted");
+    const g = await other.build();
+    expect(g.color.tokens.some((t) => t.hex === "#0071e3")).toBe(true);
+  });
+
   it("records decisions and exports a brief that carries them", async () => {
     const conflict = genome.conflicts.find((c) => c.description.includes("requires Helvetica Neue"))!;
     const rebuilt = await svc.resolve(conflict.id, "Follow the site: Inter");

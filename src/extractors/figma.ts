@@ -24,6 +24,16 @@ interface FigmaNode {
 
 export const figmaFileKey = (uri: string): string | null => uri.match(/figma\.com\/(?:file|design|proto)\/([A-Za-z0-9]+)/)?.[1] ?? null;
 
+/** node-id from a Figma link ("1-23" in URLs is "1:23" in the API). */
+export const figmaNodeId = (uri: string): string | null => {
+  try {
+    const id = new URL(uri).searchParams.get("node-id");
+    return id ? id.replace(/-/g, ":") : null;
+  } catch {
+    return null;
+  }
+};
+
 const hexOf = (c: FigmaColor): string => rgbToHex(Math.round(c.r * 255), Math.round(c.g * 255), Math.round(c.b * 255));
 
 const roleForSize = (size: number, body: number): string => {
@@ -117,10 +127,15 @@ export const figmaExtractor: Extractor = {
       if (!key) throw new Error(`Not a Figma file URL: ${source.uri}`);
       const token = (source.options.token as string | undefined) ?? process.env.FIGMA_TOKEN;
       if (!token) throw new Error("Figma sources need a personal access token in FIGMA_TOKEN.");
-      log(`figma: fetching file ${key}`);
-      const response = await fetch(`https://api.figma.com/v1/files/${key}?geometry=omit`, { headers: { "X-Figma-Token": token } });
+      const nodeId = figmaNodeId(source.uri);
+      log(`figma: fetching ${nodeId ? `frame ${nodeId} of ` : ""}file ${key}`);
+      const url = nodeId ? `https://api.figma.com/v1/files/${key}/nodes?ids=${encodeURIComponent(nodeId)}&geometry=omit` : `https://api.figma.com/v1/files/${key}?geometry=omit`;
+      const response = await fetch(url, { headers: { "X-Figma-Token": token } });
       if (!response.ok) throw new Error(`Figma API ${response.status}: ${await response.text()}`);
-      file = (await response.json()) as typeof file;
+      const body = (await response.json()) as { name?: string; document?: FigmaNode; nodes?: Record<string, { document: FigmaNode }> };
+      const document = nodeId ? body.nodes?.[nodeId]?.document : body.document;
+      if (!document) throw new Error(`Figma returned no document${nodeId ? ` for node ${nodeId}` : ""}.`);
+      file = { name: body.name, document };
     }
     const collector = new ObservationCollector(source.id, "figma", "exact");
     const nodes = observeFigmaDocument(file.document, source.id, collector);

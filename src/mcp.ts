@@ -216,6 +216,35 @@ export const createMcpServer = (projectDir: string): McpServer => {
       }
     },
   );
+  server.registerPrompt(
+    "criar-marca-no-figma",
+    {
+      title: "Criar marca no Figma a partir do genoma",
+      description: "Build a new brand system in Figma that follows the genome's structure (type ramp, spacing, shape, motion, imagery) with the brand's own name and identity.",
+      argsSchema: {
+        marca: z.string().describe("nome da nova marca"),
+        descricao: z.string().optional().describe("o que é a marca, público, tom"),
+        figma: z.string().optional().describe("link de um arquivo Figma existente; vazio para criar um novo"),
+      },
+    },
+    ({ marca, descricao, figma }) => ({
+      messages: [{
+        role: "user",
+        content: {
+          type: "text",
+          text: [
+            `Crie a marca "${marca}" no Figma usando o Design Genome como base.${descricao ? ` Sobre a marca: ${descricao}.` : ""}`,
+            "1. Leia genome_brief. Se houver fontes com imagens sem leitura de visão, rode genome_vision_request/genome_vision_submit até acabar e leia o brief de novo.",
+            "2. Liste os conflitos abertos e me pergunte antes de decidir qualquer um.",
+            "3. Proponha a identidade: paleta própria da marca (siga a proporção de neutros e acentos do genoma, não copie cores de marcas de referência), tipografia aberta (use as substitutas indicadas), rampa de tamanhos, tracking, grid, raios e movimento do genoma. Mostre a proposta antes de construir.",
+            `4. No Figma ${figma ? `(arquivo ${figma})` : "(crie um arquivo novo)"}: variáveis de cor e espaçamento, estilos de texto, componentes (botão, link, card, navegação) e uma página de exemplo (hero, grade de produtos, rodapé) com textos originais.`,
+            "5. Verifique com genome_verify no link do frame da página de exemplo e corrija os desvios altos e médios. Me mostre a nota final e o que ficou fora de propósito.",
+            "Não use logos, ícones, fotos ou textos das marcas de referência.",
+          ].join("\n"),
+        },
+      }],
+    }),
+  );
   return server;
 };
 

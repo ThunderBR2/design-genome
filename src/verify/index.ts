@@ -1,5 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 import { colorDistance, isNeutral } from "../core/color.js";
 import { familyKey } from "../core/fonts.js";
@@ -7,6 +9,7 @@ import type { Genome } from "../core/genome.js";
 import { Project } from "../core/project.js";
 import type { Observation } from "../core/model.js";
 import { analyzeImage } from "../extractors/image.analyze.js";
+import { figmaExtractor, figmaFileKey } from "../extractors/figma.js";
 import { webExtractor } from "../extractors/web.js";
 import { normalizeEasing } from "../reconcile/metrics.js";
 
@@ -34,7 +37,7 @@ export interface FacetReport {
 
 export interface VerifyReport {
   readonly target: string;
-  readonly kind: "web" | "image";
+  readonly kind: "web" | "image" | "figma";
   readonly score: number;
   readonly facets: Readonly<Record<string, FacetReport>>;
   readonly violations: readonly Violation[];
@@ -223,7 +226,7 @@ export const verifyImage = async (genome: Genome, path: string): Promise<Record<
 
 const FACET_WEIGHT: Record<string, number> = { color: 1, typography: 1, spacing: 0.7, shape: 0.4, motion: 0.4, voice: 0.3, imagery: 1 };
 
-const summarize = (facets: Record<string, FacetReport>, target: string, kind: "web" | "image", limitations: string[]): VerifyReport => {
+const summarize = (facets: Record<string, FacetReport>, target: string, kind: VerifyReport["kind"], limitations: string[]): VerifyReport => {
   let num = 0, den = 0;
   for (const [facet, r] of Object.entries(facets)) {
     const w = FACET_WEIGHT[facet] ?? 0.5;
@@ -246,15 +249,20 @@ const summarize = (facets: Record<string, FacetReport>, target: string, kind: "w
 
 const isImagePath = (t: string): boolean => /\.(png|jpe?g|webp|gif|avif|tiff?|bmp)$/i.test(t.split("?")[0]!);
 
-/** Verify a URL, a local HTML file, or an image against a genome. */
+/** Verify a URL, a local HTML file, an image, or a Figma file/frame against a genome. */
 export const verify = async (genome: Genome, target: string, options: { viewports?: number[]; log?: (m: string) => void } = {}): Promise<VerifyReport> => {
   if (isImagePath(target) && !/^https?:/i.test(target)) {
     return summarize(await verifyImage(genome, target), target, "image", ["Image checks compare palette and imagery statistics; typography in pixels is not read."]);
   }
-  const dir = await mkdtemp(join(process.env.TMPDIR ?? "/tmp", "genome-verify-"));
+  const dir = await mkdtemp(join(tmpdir(), "genome-verify-"));
   try {
     const project = await Project.create(dir, "verify");
-    const uri = /^https?:|^file:/i.test(target) ? target : `file://${target.startsWith("/") ? target : join(process.cwd(), target)}`;
+    if (figmaFileKey(target)) {
+      const source = { id: "candidate", kind: "figma" as const, uri: target, addedAt: new Date().toISOString(), tags: [], options: {} };
+      const extraction = await figmaExtractor.extract({ project, source, log: options.log ?? (() => undefined) });
+      return summarize(verifyObservations(genome, extraction.observations), target, "figma", extraction.limitations);
+    }
+    const uri = /^https?:|^file:/i.test(target) ? target : pathToFileURL(resolve(target)).href;
     const source = { id: "candidate", kind: "web" as const, uri, addedAt: new Date().toISOString(), tags: [], options: { viewports: options.viewports ?? [1440] } };
     const extraction = await webExtractor.extract({ project, source, log: options.log ?? (() => undefined) });
     return summarize(verifyObservations(genome, extraction.observations), target, "web", extraction.limitations);

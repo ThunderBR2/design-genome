@@ -159,6 +159,35 @@ program
     for (const path of await service().export(formats, o.out, !o.originalFonts)) print(path);
   });
 
+program.command("doctor").description("check that Chromium, ffmpeg and the optional tools are ready").action(async () => {
+  const { doctor } = await import("./setup.js");
+  const checks = await doctor();
+  for (const c of checks) print(`${c.ok ? "✓" : c.required ? "✗" : "○"} ${c.name.padEnd(40)} ${c.detail}${c.ok ? "" : `\n    → ${c.fix}`}`);
+  if (checks.some((c) => c.required && !c.ok)) process.exitCode = 1;
+});
+
+program
+  .command("mcp-config")
+  .description("print (or install) the MCP configuration for Claude Desktop and Claude Code")
+  .option("--install", "add the server to Claude Desktop's config (keeps other servers, backs up the file)")
+  .option("--figma-token <token>", "store a Figma personal access token in the server's env")
+  .action(async (o) => {
+    const setup = await import("./setup.js");
+    const project = program.opts<{ project: string }>().project;
+    await service().project();
+    const env: Record<string, string> = o.figmaToken ? { FIGMA_TOKEN: o.figmaToken } : process.env.FIGMA_TOKEN ? { FIGMA_TOKEN: process.env.FIGMA_TOKEN } : {};
+    if (o.install) {
+      const { path, backup } = await setup.installClaudeDesktop(project, env);
+      print(`Added "design-genome" to ${path}${backup ? `\nBackup: ${backup}` : ""}\nQuit and reopen Claude Desktop, then ask: "use o design genome: mostre o brief".`);
+      return;
+    }
+    const entry = setup.mcpServerEntry(project, env);
+    print(`Claude Desktop — add inside "mcpServers" of:\n  ${setup.claudeDesktopConfigCandidates().join("\n  or ")}\n`);
+    print({ "design-genome": entry }, true);
+    const quote = (a: string) => (/\s/.test(a) ? `"${a}"` : a);
+    print(`\nClaude Code:\n  claude mcp add design-genome${Object.entries(env).map(([k]) => ` -e ${k}=...`).join("")} -- ${[entry.command, ...entry.args].map(quote).join(" ")}`);
+  });
+
 program
   .command("studio")
   .option("--port <port>", "port", "4848")
