@@ -1,0 +1,9 @@
+node_modules/
+dist/
+.genome/
+*.log
+.DS_Store
+coverage/
+.env
+
+tests/fixtures/out/

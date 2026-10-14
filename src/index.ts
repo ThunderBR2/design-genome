@@ -1,0 +1,12 @@
+export * from "./core/model.js";
+export type * from "./core/genome.js";
+export { Project, detectSourceKind } from "./core/project.js";
+export { normalizeColor, colorDistance } from "./core/color.js";
+export { extractSources, PRIMARY as extractors } from "./extractors/index.js";
+export { buildGenome } from "./reconcile/build.js";
+export { verify, verifyObservations, verifyImage, type VerifyReport, type Violation } from "./verify/index.js";
+export { exportGenome, toBrief, toCss, toDesignTokens, toTailwind, toImageDirection, EXPORT_FORMATS } from "./export/index.js";
+export { queryGenome, FACETS } from "./query.js";
+export { GenomeService } from "./service.js";
+export { createMcpServer, startMcpServer } from "./mcp.js";
+export { startStudio } from "./studio/server.js";

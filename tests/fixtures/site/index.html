@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lumen — Fixture Brand</title>
+<style>
+  :root {
+    --color-canvas: #ffffff;
+    --color-surface: #f5f5f7;
+    --color-text: #1d1d1f;
+    --color-text-secondary: #6e6e73;
+    --color-accent: #0071e3;
+    --ease-standard: cubic-bezier(0.4, 0, 0.6, 1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Inter", "Helvetica Neue", sans-serif; background: var(--color-canvas); color: var(--color-text); font-size: 17px; line-height: 1.47; letter-spacing: -0.022em; }
+  nav { display: flex; gap: 32px; padding: 16px 24px; background: var(--color-surface); font-size: 12px; letter-spacing: -0.01em; }
+  nav a { color: var(--color-text); text-decoration: none; transition: color 240ms var(--ease-standard); }
+  .hero { padding: 96px 24px 64px; text-align: center; }
+  .hero h1 { font-size: 80px; line-height: 1.05; font-weight: 600; letter-spacing: -0.015em; }
+  .hero p.sub { font-size: 28px; line-height: 1.14; font-weight: 400; letter-spacing: 0.007em; margin-top: 8px; color: var(--color-text); }
+  .ctas { display: flex; gap: 24px; justify-content: center; margin-top: 24px; }
+  .ctas a { color: var(--color-accent); font-size: 21px; letter-spacing: 0.011em; text-decoration: none; transition: opacity 320ms var(--ease-standard); }
+  .button { display: inline-block; background: var(--color-accent); color: #fff !important; border-radius: 980px; padding: 8px 16px; font-size: 17px; transition: background-color 240ms var(--ease-standard); }
+  .grid { max-width: 1200px; margin: 0 auto; display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; padding: 0 24px 80px; }
+  .card { background: var(--color-surface); border-radius: 18px; padding: 48px 32px; min-height: 360px; text-align: center; transition: transform 400ms var(--ease-standard); }
+  .card h2 { font-size: 48px; line-height: 1.08; font-weight: 600; letter-spacing: -0.003em; }
+  .card p { font-size: 21px; line-height: 1.19; margin-top: 8px; color: var(--color-text-secondary); letter-spacing: 0.011em; }
+  .copy { max-width: 980px; margin: 0 auto; padding: 64px 24px; }
+  .copy h3 { font-size: 32px; line-height: 1.125; font-weight: 600; letter-spacing: 0.004em; margin-bottom: 16px; }
+  .copy p { font-size: 17px; line-height: 1.47; margin-bottom: 16px; }
+  footer { background: var(--color-surface); color: var(--color-text-secondary); padding: 16px 24px 24px; font-size: 11px; line-height: 1.33; letter-spacing: 0; }
+  @media (max-width: 1068px) { .hero h1 { font-size: 64px; } .card h2 { font-size: 40px; } }
+  @media (max-width: 734px) {
+    .hero { padding: 64px 16px 48px; }
+    .hero h1 { font-size: 48px; line-height: 1.08; letter-spacing: -0.003em; }
+    .hero p.sub { font-size: 21px; }
+    .grid { grid-template-columns: 1fr; padding: 0 16px 48px; }
+    .card h2 { font-size: 32px; letter-spacing: 0.004em; }
+    .card p { font-size: 17px; letter-spacing: -0.022em; }
+    nav { gap: 16px; }
+  }
+</style>
+</head>
+<body>
+  <nav><a href="#">Store</a><a href="#">Lumen One</a><a href="#">Lumen Air</a><a href="#">Accessories</a><a href="#">Support</a></nav>
+  <section class="hero">
+    <h1>Lumen One</h1>
+    <p class="sub">Brilliant. In every light.</p>
+    <div class="ctas"><a class="button" href="#">Buy</a><a href="#">Learn more ›</a></div>
+  </section>
+  <section class="grid">
+    <div class="card"><h2>Lumen Air</h2><p>Impossibly thin. Seriously bright.</p></div>
+    <div class="card"><h2>Lumen Studio</h2><p>Pro light for every creator.</p></div>
+    <div class="card"><h2>Lumen Mini</h2><p>Small size. Big glow.</p></div>
+    <div class="card"><h2>Lumen Care</h2><p>Protection that lasts as long as the light does.</p></div>
+  </section>
+  <section class="copy">
+    <h3>Designed to disappear.</h3>
+    <p>Every Lumen is milled from a single block of recycled aluminum, so the light is the only thing you notice. The diffuser spreads output evenly across the room, without hotspots or glare, and the dimmer responds in a fraction of a second.</p>
+    <p>Set a scene once and Lumen remembers it. Morning light is cool and bright; evening light warms gradually as the sun goes down, following your local sunset time automatically.</p>
+  </section>
+  <footer>Copyright © 2026 Lumen Inc. All rights reserved. This page is a test fixture for design-genome and depicts no real company.</footer>
+</body>
+</html>

@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Design Genome Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper: #eceee9;
+    --sheet: #fbfbf8;
+    --ink: #1c2629;
+    --ink-2: #56636a;
+    --ink-3: #8a959a;
+    --rule: #d3d8d3;
+    --confirmed: #0f766e;
+    --single: #56636a;
+    --declared: #6d28d9;
+    --conflicted: #b45309;
+    --web: #1d4ed8;
+    --figma: #9333ea;
+    --document: #6d28d9;
+    --image: #0f766e;
+    --video: #be185d;
+    --focus: #1d4ed8;
+    --radius-s: 4px;
+    --radius-m: 10px;
+    font-family: "Schibsted Grotesk", system-ui, sans-serif;
+    color: var(--ink);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); font-size: 14px; line-height: 1.45; }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  a { color: var(--web); }
+  .app { display: grid; grid-template-columns: 320px 1fr; min-height: 100vh; }
+  @media (max-width: 860px) { .app { grid-template-columns: 1fr; } .rail { position: static !important; height: auto !important; } }
+
+  /* Rail: the sample intake */
+  .rail { position: sticky; top: 0; height: 100vh; overflow: auto; padding: 20px 16px 24px; border-right: 1px solid var(--rule); display: flex; flex-direction: column; gap: 16px; }
+  .brand { display: flex; align-items: baseline; gap: 8px; }
+  .brand h1 { margin: 0; font-size: 15px; font-weight: 700; letter-spacing: -0.01em; }
+  .brand input { border: 0; background: transparent; font-size: 22px; font-weight: 600; letter-spacing: -0.02em; width: 100%; padding: 0; }
+  .brand input:hover, .brand input:focus { background: var(--sheet); }
+  .muted { color: var(--ink-2); }
+  .faint { color: var(--ink-3); }
+  .intake { display: grid; gap: 8px; }
+  .row { display: flex; gap: 8px; }
+  .field { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--rule); border-radius: var(--radius-s); background: var(--sheet); }
+  .drop { border: 1.5px dashed var(--ink-3); border-radius: var(--radius-m); padding: 18px 12px; text-align: center; color: var(--ink-2); cursor: pointer; background: transparent; width: 100%; }
+  .drop.over { border-color: var(--confirmed); color: var(--confirmed); background: #e2ece9; }
+  .btn { border: 1px solid var(--ink); background: var(--ink); color: var(--sheet); padding: 8px 14px; border-radius: var(--radius-s); cursor: pointer; font-weight: 600; white-space: nowrap; }
+  .btn.quiet { background: transparent; color: var(--ink); border-color: var(--rule); font-weight: 500; }
+  .btn:disabled { opacity: 0.45; cursor: default; }
+  .sources { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+  .source { display: grid; grid-template-columns: 10px 1fr auto; gap: 10px; align-items: center; padding: 8px 6px; border-radius: var(--radius-s); }
+  .source:hover { background: var(--sheet); }
+  .source .dot { width: 10px; height: 10px; border-radius: 2px; }
+  .source .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .source .meta { font-size: 12px; color: var(--ink-3); }
+  .source button { border: 0; background: none; color: var(--ink-3); cursor: pointer; padding: 2px 6px; }
+  .log { margin-top: auto; font-size: 12px; color: var(--ink-2); background: var(--sheet); border-radius: var(--radius-s); padding: 10px; max-height: 180px; overflow: auto; white-space: pre-wrap; }
+  .log:empty { display: none; }
+  label.check { display: flex; gap: 8px; align-items: center; font-size: 13px; color: var(--ink-2); }
+
+  /* Main sheet */
+  main { padding: 20px 32px 64px; min-width: 0; }
+  nav.tabs { display: flex; gap: 2px; flex-wrap: wrap; border-bottom: 1px solid var(--rule); margin-bottom: 28px; position: sticky; top: 0; background: var(--paper); z-index: 2; padding-top: 4px; }
+  nav.tabs button { border: 0; background: none; padding: 10px 12px; cursor: pointer; color: var(--ink-2); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  nav.tabs button[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); font-weight: 600; }
+  nav.tabs .count { color: var(--conflicted); font-weight: 600; margin-left: 4px; }
+  h2 { font-size: 28px; letter-spacing: -0.02em; line-height: 1.1; margin: 0 0 6px; font-weight: 600; }
+  h3 { font-size: 16px; margin: 32px 0 12px; font-weight: 600; letter-spacing: -0.01em; }
+  .lede { color: var(--ink-2); max-width: 68ch; margin: 0 0 24px; }
+  .empty { padding: 48px 0; max-width: 56ch; }
+  .empty h2 { font-size: 34px; }
+
+  /* Corroboration strip: one segment per source; fill shows precision */
+  .strip { display: inline-flex; gap: 2px; align-items: center; vertical-align: middle; }
+  .seg { width: 14px; height: 8px; border-radius: 1px; border: 1.5px solid currentColor; }
+  .seg.exact { background: currentColor; }
+  .seg.estimated { background: repeating-linear-gradient(135deg, currentColor 0 2px, transparent 2px 4px); }
+  .seg.declared { background: transparent; }
+  .seg.inferred { border-style: dotted; }
+  .status { font-size: 12px; margin-left: 6px; font-weight: 600; }
+  .status.confirmed { color: var(--confirmed); }
+  .status.single-source { color: var(--single); }
+  .status.declared-only { color: var(--declared); }
+  .status.conflicted { color: var(--conflicted); }
+  .support { display: inline-flex; align-items: center; gap: 2px; background: none; border: 0; padding: 2px 0; cursor: pointer; }
+
+  /* Overview */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); border-radius: var(--radius-m); overflow: hidden; margin-bottom: 8px; }
+  .stat { background: var(--sheet); padding: 14px 16px; }
+  .stat b, .score, .chip .hex { font-variant-numeric: tabular-nums; }
+  .stat b { display: block; font-size: 26px; letter-spacing: -0.02em; font-weight: 600; }
+  .stat span { color: var(--ink-2); font-size: 13px; }
+  table.matrix { border-collapse: collapse; font-size: 13px; }
+  table.matrix th, table.matrix td { padding: 6px 10px; border-bottom: 1px solid var(--rule); text-align: left; }
+  table.matrix td.on::before { content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 2px; background: var(--ink); }
+  table.matrix td.off { color: var(--ink-3); }
+
+  /* Color chips */
+  .chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 14px; }
+  .chip { background: var(--sheet); border-radius: var(--radius-m); overflow: hidden; border: 1px solid var(--rule); cursor: pointer; text-align: left; padding: 0; }
+  .chip .swatch { height: 96px; border-bottom: 1px solid var(--rule); position: relative; }
+  .chip .swatch .share { position: absolute; left: 0; bottom: 0; height: 4px; background: var(--ink); opacity: .55; }
+  .chip .body { padding: 10px 12px 12px; display: grid; gap: 2px; }
+  .chip .hex { font-weight: 600; }
+  .chip small { color: var(--ink-2); font-size: 12px; }
+
+  /* Type specimens */
+  .families { display: grid; gap: 10px; margin-bottom: 8px; }
+  .family { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 12px 14px; background: var(--sheet); border-radius: var(--radius-m); border: 1px solid var(--rule); }
+  .family.restricted { border-left: 3px solid var(--conflicted); }
+  .specimen { display: grid; grid-template-columns: 140px 1fr; gap: 20px; padding: 18px 0; border-bottom: 1px solid var(--rule); align-items: baseline; cursor: pointer; }
+  .specimen .spec { font-size: 12px; color: var(--ink-2); display: grid; gap: 2px; }
+  .specimen .spec b { color: var(--ink); font-size: 13px; }
+  .specimen .sample { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  @media (max-width: 700px) { .specimen { grid-template-columns: 1fr; } }
+  .toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .seg-ctl { display: inline-flex; border: 1px solid var(--rule); border-radius: var(--radius-s); overflow: hidden; }
+  .seg-ctl button { border: 0; background: var(--sheet); padding: 6px 10px; cursor: pointer; color: var(--ink-2); }
+  .seg-ctl button[aria-pressed="true"] { background: var(--ink); color: var(--sheet); }
+
+  /* Space & motion */
+  .bars { display: grid; gap: 6px; }
+  .bar { display: grid; grid-template-columns: 64px 1fr 120px; gap: 12px; align-items: center; font-size: 13px; }
+  .bar .fill { height: 10px; background: var(--ink); border-radius: 1px; }
+  .shapes { display: flex; gap: 18px; flex-wrap: wrap; align-items: end; }
+  .shape { width: 96px; height: 64px; background: var(--sheet); border: 1.5px solid var(--ink); }
+  .motion-row { display: grid; grid-template-columns: 1fr 220px auto; gap: 16px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--rule); }
+  .track { position: relative; height: 18px; border-bottom: 1px solid var(--rule); }
+  .track i { position: absolute; left: 0; top: 3px; width: 12px; height: 12px; border-radius: 50%; background: var(--ink); }
+
+  /* Imagery */
+  .frames { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .frames img { width: 100%; aspect-ratio: 16/10; object-fit: cover; border-radius: var(--radius-s); background: var(--rule); cursor: zoom-in; }
+  pre.direction { white-space: pre-wrap; background: var(--sheet); border: 1px solid var(--rule); border-radius: var(--radius-m); padding: 16px; font: inherit; max-width: 80ch; }
+
+  /* Rules & conflicts */
+  .filters { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 16px; }
+  .filters button { border: 1px solid var(--rule); background: var(--sheet); border-radius: 999px; padding: 4px 12px; cursor: pointer; color: var(--ink-2); }
+  .filters button[aria-pressed="true"] { border-color: var(--ink); color: var(--ink); font-weight: 600; }
+  .rule { display: grid; grid-template-columns: 74px 1fr auto; gap: 14px; padding: 14px 0; border-bottom: 1px solid var(--rule); align-items: start; }
+  .rule .pol { font-size: 12px; font-weight: 700; padding-top: 2px; }
+  .rule .pol.must { color: var(--confirmed); } .rule .pol.never, .rule .pol.avoid { color: var(--conflicted); } .rule .pol.should { color: var(--ink); } .rule .pol.fact { color: var(--ink-3); }
+  .rule .topic { font-size: 12px; color: var(--ink-3); }
+  .rule .counter { font-size: 12px; color: var(--conflicted); margin-top: 4px; }
+  @media (max-width: 700px) { .rule { grid-template-columns: 1fr; gap: 4px; } }
+  .conflict { background: var(--sheet); border: 1px solid var(--rule); border-left: 3px solid var(--conflicted); border-radius: var(--radius-m); padding: 16px 18px; margin-bottom: 14px; }
+  .conflict.resolved { border-left-color: var(--confirmed); opacity: .8; }
+  .claims { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin: 12px 0; }
+  .claim { border: 1px solid var(--rule); border-radius: var(--radius-s); padding: 10px; display: grid; gap: 6px; }
+  .claim img { width: 100%; max-height: 120px; object-fit: cover; object-position: top; border-radius: 2px; }
+  .resolve { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+  /* Verify */
+  .score { font-size: 64px; font-weight: 600; letter-spacing: -0.04em; line-height: 1; }
+  .violation { padding: 10px 0; border-bottom: 1px solid var(--rule); display: grid; grid-template-columns: 70px 1fr; gap: 12px; }
+  .sev { font-size: 12px; font-weight: 700; } .sev.high { color: var(--conflicted); } .sev.medium { color: var(--ink); } .sev.low { color: var(--ink-3); }
+
+  /* Evidence drawer */
+  dialog.drawer { margin: 0 0 0 auto; height: 100vh; max-height: 100vh; width: min(520px, 100vw); border: 0; padding: 24px; background: var(--sheet); box-shadow: -1px 0 0 var(--rule); }
+  dialog.drawer::backdrop { background: rgba(28, 38, 41, .28); }
+  .ev { border-top: 1px solid var(--rule); padding: 12px 0; display: grid; gap: 6px; font-size: 13px; }
+  .ev img { max-width: 100%; border-radius: var(--radius-s); border: 1px solid var(--rule); }
+  .ev code { font-size: 12px; word-break: break-all; background: var(--paper); padding: 1px 4px; border-radius: 2px; }
+  dialog.zoom { border: 0; padding: 0; background: transparent; max-width: 92vw; }
+  dialog.zoom img { max-width: 92vw; max-height: 90vh; display: block; }
+  @media (prefers-reduced-motion: reduce) { .track i { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="rail">
+    <div class="brand"><input id="name" aria-label="Genome name" value=""></div>
+    <div class="intake">
+      <div class="row">
+        <input id="link" class="field" placeholder="Paste a site, Figma or media link" aria-label="Source link">
+        <button class="btn" id="addLink">Add</button>
+      </div>
+      <button class="drop" id="drop" type="button">Drop images, videos, PDFs or notes here<br><span class="faint">or click to choose files</span></button>
+      <input type="file" id="files" multiple hidden accept="image/*,video/*,.pdf,.md,.txt,.html">
+      <label class="check"><input type="checkbox" id="dark"> Render links in dark appearance</label>
+      <label class="check"><input type="checkbox" id="vision"> Name art direction with the vision model</label>
+      <button class="btn" id="run">Extract and cross-check</button>
+    </div>
+    <ul class="sources" id="sources"></ul>
+    <div class="log" id="log" aria-live="polite"></div>
+  </aside>
+  <main>
+    <nav class="tabs" role="tablist" id="tabs"></nav>
+    <section id="view"></section>
+  </main>
+</div>
+<dialog class="drawer" id="drawer"></dialog>
+<dialog class="zoom" id="zoom"><img alt=""></dialog>
+<script>
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const pct = (n) => `${Math.round(n * 100)}%`;
+const api = async (path, opts = {}) => {
+  const res = await fetch(path, { headers: { "content-type": "application/json" }, ...opts });
+  const body = res.headers.get("content-type")?.includes("json") ? await res.json() : await res.text();
+  if (!res.ok) throw new Error(body?.error ?? res.statusText);
+  return body;
+};
+const state = { project: null, genome: null, tab: "overview", ruleFilter: { status: null, topic: null }, typeViewport: null, openFonts: true, verify: null };
+const KIND_COLOR = { web: "var(--web)", figma: "var(--figma)", document: "var(--document)", image: "var(--image)", video: "var(--video)" };
+const STATUS_TEXT = { confirmed: "Confirmed", "single-source": "One source", "declared-only": "Stated, not seen", conflicted: "Disputed" };
+const sourceLabel = (id) => { const s = state.project?.sources.find((x) => x.id === id); return s ? (s.label || s.uri.split("/").filter(Boolean).pop()) : id; };
+let supports = [];
+const strip = (support) => {
+  if (!support) return "";
+  const i = supports.push(support) - 1;
+  const segs = support.sources.map((s) => `<span class="seg ${s.precision}" style="color:${KIND_COLOR[s.kind]}" title="${esc(sourceLabel(s.sourceId))}: ${s.precision}, ${s.count}×"></span>`).join("");
+  return `<button class="support" data-support="${i}" title="Show evidence"><span class="strip">${segs}</span><span class="status ${support.status}">${STATUS_TEXT[support.status]}, ${pct(support.confidence)}</span></button>`;
+};
+
+function locatorText(l) {
+  switch (l.type) {
+    case "css": return `<code>${esc(l.selector)}</code> at ${l.viewport}px`;
+    case "region": return `region ${l.box.x},${l.box.y} · ${l.box.w}×${l.box.h} of ${l.imageWidth}×${l.imageHeight}`;
+    case "frame": return `frame at ${l.timeSec}s`;
+    case "span": return `${l.startSec}s – ${l.endSec}s`;
+    case "page": return `page ${l.page}${l.quote ? `: “${esc(l.quote)}”` : ""}`;
+    case "figma-node": return `Figma node ${esc(l.name ?? "")} <code>${esc(l.nodeId)}</code>`;
+    case "stylesheet": return `stylesheet rule <code>${esc(l.rule ?? "")}</code>`;
+    default: return "whole source";
+  }
+}
+/** The evidence picture, cropped to the measured box when the locator has one. */
+function evidenceImage(e) {
+  if (!e.artifact || !/\.(png|jpe?g|webp)$/i.test(e.artifact)) return "";
+  const l = e.locator;
+  const box = l.type === "css" ? l.box : l.type === "region" ? l.box : l.type === "frame" ? l.box : null;
+  const alt = `Evidence from ${esc(sourceLabel(e.sourceId))}`;
+  if (!box) return `<img src="/files/${encodeURI(e.artifact)}" alt="${alt}" loading="lazy" data-zoom>`;
+  const q = new URLSearchParams({ file: e.artifact, x: box.x, y: box.y, w: box.w, h: box.h, ...(l.imageWidth ? { srcW: l.imageWidth } : {}) });
+  return `<img src="/api/crop?${q}" alt="${alt}" loading="lazy" data-zoom><a class="faint" style="font-size:12px" href="/files/${encodeURI(e.artifact)}" target="_blank">Open full capture</a>`;
+}
+function openEvidence(title, support) {
+  const d = $("#drawer");
+  const ev = support.evidence.map((e) => `<div class="ev"><b>${esc(sourceLabel(e.sourceId))}</b><span class="muted">${locatorText(e.locator)}</span>${e.note ? `<span class="faint">${esc(e.note)}</span>` : ""}${evidenceImage(e)}</div>`).join("");
+  d.innerHTML = `<div class="toolbar" style="justify-content:space-between"><h3 style="margin:0">${esc(title)}</h3><button class="btn quiet" onclick="drawer.close()">Close</button></div>
+    <p class="muted">${STATUS_TEXT[support.status]} with ${pct(support.confidence)} confidence, from ${support.sources.length} source(s):</p>
+    <ul>${support.sources.map((s) => `<li>${esc(sourceLabel(s.sourceId))}, ${s.kind}, ${s.precision}, ${s.count} reading(s)</li>`).join("")}</ul>
+    ${ev || '<p class="faint">No evidence attached.</p>'}`;
+  d.showModal();
+}
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-support]");
+  if (btn) { const host = btn.closest("[data-title]"); openEvidence(host?.dataset.title ?? "Evidence", supports[Number(btn.dataset.support)]); return; }
+  const host = e.target.closest("[data-open]");
+  if (host && !e.target.closest("button,a,input")) { openEvidence(host.dataset.title ?? "Evidence", supports[Number(host.dataset.open)]); return; }
+  const img = e.target.closest("[data-zoom]");
+  if (img) { $("#zoom img").src = img.src; $("#zoom").showModal(); }
+});
+$("#zoom").addEventListener("click", () => $("#zoom").close());
+$("#drawer").addEventListener("click", (e) => { if (e.target.id === "drawer") $("#drawer").close(); });
+
+async function load() {
+  state.project = await api("/api/project");
+  state.genome = await api("/api/genome");
+  $("#name").value = state.project.name;
+  renderSources();
+  render();
+}
+function renderSources() {
+  const done = new Set(state.project.extracted.filter((x) => x.done).map((x) => x.id));
+  $("#sources").innerHTML = state.project.sources.map((s) => `<li class="source"><span class="dot" style="background:${KIND_COLOR[s.kind]}"></span><span><div class="name" title="${esc(s.uri)}">${esc(s.label || s.uri)}</div><div class="meta">${s.kind}${done.has(s.id) ? "" : ", not extracted"}${s.depicts ? `, shows ${esc(sourceLabel(s.depicts))}` : ""}</div></span><button title="Remove source" aria-label="Remove ${esc(s.label || s.uri)}" data-remove="${s.id}">✕</button></li>`).join("") || '<li class="faint" style="padding:8px 6px">No sources yet.</li>';
+  for (const b of document.querySelectorAll("[data-remove]")) b.onclick = async () => { if (!confirm("Remove this source and its evidence?")) return; await api(`/api/sources/${b.dataset.remove}`, { method: "DELETE" }); await load(); };
+}
+
+const TABS = [
+  ["overview", "Overview"], ["color", "Color"], ["type", "Type"], ["space", "Space and motion"], ["imagery", "Imagery"],
+  ["rules", "Rules"], ["conflicts", "Conflicts"], ["verify", "Verify"], ["export", "Export"],
+];
+function render() {
+  supports = [];
+  const g = state.genome;
+  const open = g ? g.conflicts.filter((c) => !c.resolution).length : 0;
+  $("#tabs").innerHTML = TABS.map(([id, label]) => `<button role="tab" aria-selected="${state.tab === id}" data-tab="${id}">${label}${id === "conflicts" && open ? `<span class="count">${open}</span>` : ""}</button>`).join("");
+  for (const b of document.querySelectorAll("[data-tab]")) b.onclick = () => { state.tab = b.dataset.tab; render(); };
+  const v = $("#view");
+  if (!g) {
+    v.innerHTML = `<div class="empty"><h2>Feed it a design system.</h2><p class="lede">Add a site, a Figma file, a brand book, product shots or a campaign film. Each source is measured on its own, then every fact is cross-checked: where two sources agree it becomes confirmed, where they disagree you decide.</p><p class="muted">Start with one exact source (a live site or Figma file), then add images and video of the same brand.</p></div>`;
+    return;
+  }
+  v.innerHTML = ({ overview, color, type, space, imagery, rules, conflicts, verify: verifyView, export: exportView })[state.tab](g);
+  bindView();
+}
+
+function overview(g) {
+  const confirmed = g.rules.filter((r) => r.support.status === "confirmed").length;
+  const facets = Object.keys(g.coverage);
+  const top = [...g.rules].sort((a, b) => b.support.confidence - a.support.confidence).slice(0, 8);
+  return `<h2>${esc(g.name)}</h2><p class="lede">Built ${new Date(g.builtAt).toLocaleString()} from ${g.sources.length} source(s). Everything here links back to the readings that produced it.</p>
+  <div class="stats">
+    <div class="stat"><b>${g.color.tokens.length}</b><span>colors</span></div>
+    <div class="stat"><b>${g.typography.styles.length}</b><span>type styles</span></div>
+    <div class="stat"><b>${confirmed}/${g.rules.length}</b><span>rules confirmed</span></div>
+    <div class="stat"><b>${g.conflicts.filter((c) => !c.resolution).length}</b><span>open conflicts</span></div>
+    <div class="stat"><b>${g.unknowns.length}</b><span>unknowns</span></div>
+  </div>
+  <h3>Strongest rules</h3>${top.map(ruleRow).join("")}
+  <h3>What each source could see</h3>
+  <div style="overflow:auto"><table class="matrix"><thead><tr><th>Facet</th>${g.sources.map((s) => `<th title="${esc(s.uri)}"><span class="dot" style="display:inline-block;width:8px;height:8px;border-radius:2px;background:${KIND_COLOR[s.kind]}"></span> ${esc(s.label || s.kind)}</th>`).join("")}</tr></thead>
+  <tbody>${facets.map((f) => `<tr><td>${f}</td>${g.sources.map((s) => g.coverage[f].includes(s.id) ? '<td class="on" aria-label="examined"></td>' : '<td class="off">–</td>').join("")}</tr>`).join("")}</tbody></table></div>
+  ${g.unknowns.length ? `<h3>Unknown, so not invented</h3><ul class="muted">${g.unknowns.map((u) => `<li>${esc(u)}</li>`).join("")}</ul>` : ""}
+  <h3>Source limitations</h3><ul class="muted">${g.sources.flatMap((s) => s.limitations.map((l) => `<li><b>${esc(s.label || s.kind)}:</b> ${esc(l)}</li>`)).join("") || "<li>None reported.</li>"}</ul>
+  ${g.sources.filter((s) => s.calibration).map((s) => `<p class="muted">Calibration, ${esc(s.label || s.id)}: ${esc(s.calibration.method)}.</p>`).join("")}`;
+}
+
+function color(g) {
+  return `<h2>Color</h2><p class="lede">Neutrals carry ${pct(g.color.neutralsShare)} of color use; ${g.color.accentCount} accent hue famil${g.color.accentCount === 1 ? "y" : "ies"}. Pixel readings snap to exact readings within ΔE 6; the bar under each chip is its share of use.</p>
+  <div class="chips">${g.color.tokens.map((t) => { const i = supports.length; const s = strip(t.support); return `<div class="chip" data-open="${i}" data-title="${esc(t.name)} ${t.hex}" tabindex="0"><div class="swatch" style="background:${t.hex}"><span class="share" style="width:${Math.min(100, Math.max(2, t.share * 200))}%"></span></div><div class="body"><span class="hex">${t.hex}</span><span>${esc(t.name)}${t.declaredAs ? ` <small>“${esc(t.declaredAs)}”</small>` : ""}</span><small>${esc(t.usages.join(", ") || "—")}, ${(t.share * 100).toFixed(1)}%</small>${t.variants.length ? `<small class="faint">also read as ${t.variants.slice(0, 3).join(", ")}</small>` : ""}${s}</div></div>`; }).join("")}</div>`;
+}
+
+const familyCss = (g, family) => {
+  const f = g.typography.families.find((x) => x.family.toLowerCase() === family.replace(/\s+(display|text)$/i, "").toLowerCase());
+  const name = state.openFonts && f?.reuse === "restricted" && f.substitute ? f.substitute : family;
+  return `"${name}", system-ui, sans-serif`;
+};
+function type(g) {
+  const vps = [...new Set(g.typography.styles.map((s) => s.viewport).filter(Boolean))].sort((a, b) => b - a);
+  const vp = state.typeViewport ?? vps[0];
+  const styles = g.typography.styles.filter((s) => (s.viewport ?? null) === (vp ?? null) || (!vp && !s.viewport));
+  const sample = (s) => g.voice.samples.find((x) => (s.role === "display" || s.role === "headline") && x.role === s.role)?.text ?? { display: "Brilliant in every light", headline: "Designed to disappear", title: "A short title sets the scene", body: "Body copy carries the detail at a comfortable measure, with open leading.", caption: "Captions and legal lines sit quietly below." }[s.role] ?? "The quick brown fox jumps over the lazy dog";
+  const t = g.typography.tracking;
+  return `<h2>Type</h2><p class="lede">${esc(g.typography.scale?.description ?? "")} ${esc(t?.description ?? "")}</p>
+  <div class="families">${g.typography.families.map((f) => { const s = strip(f.support); return `<div class="family ${f.reuse === "restricted" ? "restricted" : ""}"><div><b>${esc(f.family)}</b> <span class="muted">${pct(f.share)} of text, ${esc(f.roles.join(", ") || "—")}</span>${f.reuse !== "open" ? `<div class="muted" style="font-size:13px">${esc(f.reuseNote ?? "")}${f.substitute ? ` Specimens use <b>${esc(f.substitute)}</b>.` : ""}</div>` : ""}</div><div>${s}</div></div>`; }).join("")}</div>
+  <div class="toolbar"><div class="seg-ctl" role="group" aria-label="Viewport">${vps.map((w) => `<button aria-pressed="${w === vp}" data-vp="${w}">${w}px</button>`).join("")}</div>
+  <label class="check"><input type="checkbox" id="openFonts" ${state.openFonts ? "checked" : ""}> Show open substitutes for restricted fonts</label></div>
+  ${styles.map((s) => { const i = supports.length; const st = strip(s.support); return `<div class="specimen" data-open="${i}" data-title="${esc(s.role)} ${s.sizePx}px"><div class="spec"><b>${esc(s.role)}</b><span>${s.sizePx}px, ${s.weight ?? "—"}</span><span>leading ${s.lineHeight ?? "—"}, tracking ${s.trackingEm ?? 0}em</span>${st}</div><div class="sample" style="font-family:${esc(familyCss(g, s.family))};font-size:${Math.min(s.sizePx, 120)}px;font-weight:${s.weight ?? 400};line-height:${s.lineHeight ?? 1.2};letter-spacing:${s.trackingEm ?? 0}em;${s.transform ? `text-transform:${s.transform}` : ""}">${esc(sample(s))}</div></div>`; }).join("")}
+  ${t ? `<h3>Tracking by size</h3>${trackingChart(t.table)}` : ""}`;
+}
+function trackingChart(table) {
+  if (table.length < 2) return "";
+  const W = 560, H = 160, P = 28;
+  const xs = table.map((t) => Math.log(t.sizePx)), ys = table.map((t) => t.trackingEm);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys, 0), y1 = Math.max(...ys, 0);
+  const X = (v) => P + ((v - x0) / (x1 - x0 || 1)) * (W - 2 * P), Y = (v) => H - P - ((v - y0) / (y1 - y0 || 1)) * (H - 2 * P);
+  const pts = table.map((t) => `${X(Math.log(t.sizePx)).toFixed(1)},${Y(t.trackingEm).toFixed(1)}`).join(" ");
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px" role="img" aria-label="Tracking in em by font size">
+    <line x1="${P}" x2="${W - P}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--rule)"/>
+    <polyline points="${pts}" fill="none" stroke="var(--ink)" stroke-width="1.5"/>
+    ${table.map((t) => `<circle cx="${X(Math.log(t.sizePx))}" cy="${Y(t.trackingEm)}" r="3.5" fill="var(--ink)"/><text x="${X(Math.log(t.sizePx))}" y="${H - 8}" font-size="11" text-anchor="middle" fill="var(--ink-2)">${t.sizePx}</text><text x="${X(Math.log(t.sizePx))}" y="${Y(t.trackingEm) - 8}" font-size="10" text-anchor="middle" fill="var(--ink-2)">${t.trackingEm}</text>`).join("")}
+  </svg>`;
+}
+
+function space(g) {
+  const maxShare = Math.max(...g.spacing.scale.map((s) => s.share), 0.01);
+  return `<h2>Space and motion</h2><p class="lede">${g.spacing.grid ? `A ${g.spacing.grid.unit}px grid explains ${pct(g.spacing.grid.adherence)} of measured spacing.` : "No spacing grid could be measured."} ${g.breakpoints.length ? `Breakpoints at ${g.breakpoints.map((b) => b.value + "px").join(", ")}.` : ""}</p>
+  <h3>Spacing steps</h3><div class="bars">${g.spacing.scale.map((s) => { const i = supports.length; const st = strip(s.support); return `<div class="bar" data-open="${i}" data-title="${s.value}px"><span>${s.value}px</span><span class="fill" style="width:${Math.max(2, (s.share / maxShare) * 100)}%"></span>${st}</div>`; }).join("")}</div>
+  <h3>Corner radii</h3><div class="shapes">${g.radius.map((r) => { const i = supports.length; strip(r.support); return `<div data-open="${i}" data-title="Radius ${r.value >= 9999 ? "pill" : r.value + "px"}" style="text-align:center;cursor:pointer"><div class="shape" style="border-radius:${r.value >= 9999 ? "999px" : r.value + "px"}"></div><small class="muted">${r.value >= 9999 ? "pill" : r.value + "px"}, ${pct(r.share)}</small></div>`; }).join("")}</div>
+  ${g.shadow.length ? `<h3>Shadows</h3><div class="shapes">${g.shadow.map((s) => `<div style="text-align:center"><div class="shape" style="border:0;box-shadow:${esc(s.css)};border-radius:10px"></div><small class="muted" style="display:block;max-width:180px">${esc(s.css)}</small></div>`).join("")}</div>` : ""}
+  <h3>Motion</h3>${g.motion.durations.length ? g.motion.durations.map((d) => { const e = g.motion.easings[0]?.easing ?? "ease"; const i = supports.length; const st = strip(d.support); return `<div class="motion-row" data-title="${d.value}ms"><div><b>${d.value}ms</b> <span class="muted">${pct(d.share)} of transitions</span><br>${st}</div><div class="track"><i style="transition:transform ${d.value}ms ${esc(e)}"></i></div><button class="btn quiet" data-play>Play</button></div>`; }).join("") : '<p class="faint">No UI motion was measured.</p>'}
+  ${g.motion.easings.length ? `<p class="muted">Easing: ${g.motion.easings.map((e) => `${esc(e.easing)} (${pct(e.share)})`).join(", ")}.</p>` : ""}
+  ${g.motion.editing ? `<h3>Editing rhythm</h3><p>${esc(g.motion.editing.description)}</p>${strip(g.motion.editing.support)}` : ""}
+  ${g.motion.intensity ? `<p>${esc(g.motion.intensity.description)}</p>` : ""}`;
+}
+
+function imagery(g) {
+  const frames = [...new Set(g.imagery.flatMap((m) => m.support.evidence.map((e) => e.artifact)).filter((a) => a && /\.(jpe?g|png)$/i.test(a)))].slice(0, 24);
+  const numeric = g.imagery.filter((m) => m.spread !== undefined);
+  const named = g.imagery.filter((m) => m.spread === undefined);
+  return `<h2>Imagery</h2><p class="lede">Measured from pixels of images, video frames and screenshots. These are estimates; the vision model names lighting, camera and framing when enabled.</p>
+  <div class="frames">${frames.map((f) => `<img src="/files/${encodeURI(f)}" alt="Analysed frame" data-zoom loading="lazy">`).join("")}</div>
+  <h3>Measurements</h3><div class="bars">${numeric.map((m) => { const i = supports.length; const st = strip(m.support); return `<div class="bar" style="grid-template-columns:200px 1fr 160px" data-open="${i}" data-title="${esc(m.metric)}"><span>${esc(m.metric)}${m.label ? `<br><small class="muted">${esc(m.label)}</small>` : ""}</span><span class="muted" style="font-size:13px">${esc(m.description)}</span>${st}</div>`; }).join("")}</div>
+  ${named.length ? `<h3>Named by vision</h3><ul>${named.map((m) => `<li>${esc(m.description)}</li>`).join("")}</ul>` : ""}
+  <h3>Direction for image and video models</h3><pre class="direction" id="direction">Loading…</pre>`;
+}
+
+const ruleRow = (r) => { const i = supports.length; const st = strip(r.support); return `<div class="rule" data-open="${i}" data-title="${esc(r.topic)} rule"><span class="pol ${r.polarity}">${r.polarity}</span><div>${esc(r.statement)}<div class="topic">${esc(r.topic)}, ${r.origin}</div>${r.counterexamples.length ? `<div class="counter">${r.counterexamples.slice(0, 2).map((c) => esc(c.detail)).join("<br>")}</div>` : ""}</div>${st}</div>`; };
+function rules(g) {
+  const f = state.ruleFilter;
+  const list = g.rules.filter((r) => (!f.status || r.support.status === f.status) && (!f.topic || r.topic === f.topic)).sort((a, b) => b.support.confidence - a.support.confidence);
+  const topics = [...new Set(g.rules.map((r) => r.topic))];
+  return `<h2>Rules</h2><p class="lede">Derived from measurements, stated in documents, or named by the vision model. A brand rule turns confirmed when the measured product follows it.</p>
+  <div class="filters">${["confirmed", "single-source", "declared-only", "conflicted"].map((s) => `<button aria-pressed="${f.status === s}" data-fs="${s}">${STATUS_TEXT[s]}</button>`).join("")}</div>
+  <div class="filters">${topics.map((t) => `<button aria-pressed="${f.topic === t}" data-ft="${t}">${t}</button>`).join("")}</div>
+  ${list.map(ruleRow).join("") || '<p class="faint">No rules match.</p>'}`;
+}
+
+function conflicts(g) {
+  if (!g.conflicts.length) return `<h2>Conflicts</h2><p class="lede">Every source agrees so far. Add a brand document to compare intent with practice.</p>`;
+  return `<h2>Conflicts</h2><p class="lede">Where sources disagree, the genome does not pick a side. Record your decision; it travels with every export.</p>
+  ${g.conflicts.map((c) => `<div class="conflict ${c.resolution ? "resolved" : ""}"><b>${esc(c.description)}</b><div class="muted" style="font-size:12px">${c.severity} severity, ${c.type.replace(/-/g, " ")}</div>
+    ${c.claims.length ? `<div class="claims">${c.claims.map((cl) => `<div class="claim"><b>${esc(sourceLabel(cl.sourceId))}</b><span class="muted">${cl.precision}: ${esc(cl.value)}</span>${cl.evidence[0] ? `<span class="faint" style="font-size:12px">${locatorText(cl.evidence[0].locator)}</span>` : ""}${cl.evidence[0] ? evidenceImage(cl.evidence[0]) : ""}</div>`).join("")}</div>` : ""}
+    ${c.resolution ? `<p>Decided: <b>${esc(c.resolution.choice)}</b>${c.resolution.note ? `, ${esc(c.resolution.note)}` : ""}</p>` : `<div class="resolve">${c.claims.map((cl) => `<button class="btn quiet" data-resolve="${c.id}" data-choice="Follow ${esc(sourceLabel(cl.sourceId))}">Follow ${esc(sourceLabel(cl.sourceId))}</button>`).join("")}<input class="field" style="max-width:280px" placeholder="Or write your decision" data-note="${c.id}"><button class="btn" data-resolve-note="${c.id}">Save decision</button></div>`}
+  </div>`).join("")}`;
+}
+
+function verifyView() {
+  const r = state.verify;
+  return `<h2>Verify a design</h2><p class="lede">Measure a page or an image with the same extractors and see every deviation from the genome, with the nearest valid value. Use it on your own work and on AI output.</p>
+  <div class="row" style="max-width:720px"><input class="field" id="target" placeholder="https://… or a file path on this computer (.html, .png, .jpg)" value="${esc(r?.target ?? "")}"><button class="btn" id="runVerify">Verify</button></div>
+  ${r ? `<div style="margin-top:28px;display:flex;gap:32px;align-items:end;flex-wrap:wrap"><div><div class="score">${Math.round(r.score * 100)}%</div><span class="muted">conformance</span></div><div class="bars" style="min-width:260px;flex:1;max-width:480px">${Object.entries(r.facets).map(([k, v]) => `<div class="bar" style="grid-template-columns:100px 1fr 60px"><span>${k}</span><span class="fill" style="width:${Math.max(2, v.score * 100)}%"></span><span>${pct(v.score)}</span></div>`).join("")}</div></div>
+  <h3>${r.violations.length} deviation(s)</h3>${r.violations.slice(0, 80).map((v) => `<div class="violation"><span class="sev ${v.severity}">${v.severity}</span><div>${esc(v.message)}${v.where ? `<div class="faint" style="font-size:12px">${esc(v.where)}</div>` : ""}</div></div>`).join("")}` : ""}`;
+}
+
+function exportView(g) {
+  const items = [["brief", "Brief for AI agents", "Markdown. Rules ranked by confidence, tokens, conflicts and unknowns."], ["tokens", "Design tokens", "W3C design tokens JSON for Figma Tokens, Style Dictionary and similar."], ["css", "CSS variables", "Custom properties plus text style classes."], ["tailwind", "Tailwind preset", "theme.extend values."], ["image-direction", "Image and video direction", "Prompt fragment built only from measured facts."]];
+  return `<h2>Export</h2><p class="lede">Restricted typefaces are swapped for open substitutes unless you keep the originals. Logos, icons and photography are never exported.</p>
+  <label class="check" style="margin-bottom:16px"><input type="checkbox" id="origFonts"> Keep original typefaces (only if you hold the license)</label>
+  ${items.map(([f, t, d]) => `<div class="rule" style="grid-template-columns:1fr auto"><div><b>${t}</b><div class="muted">${d}</div></div><div class="row"><button class="btn quiet" data-preview="${f}">Preview</button><button class="btn" data-download="${f}">Download</button></div></div>`).join("")}
+  <div class="rule" style="grid-template-columns:1fr auto"><div><b>Full genome</b><div class="muted">genome.json with all evidence, for the MCP server or your own tools.</div></div><a class="btn" href="/api/genome.json" style="text-decoration:none">Download</a></div>
+  <pre class="direction" id="preview" hidden></pre>`;
+}
+
+function bindView() {
+  for (const b of document.querySelectorAll("[data-vp]")) b.onclick = () => { state.typeViewport = Number(b.dataset.vp); render(); };
+  const of = $("#openFonts"); if (of) of.onchange = () => { state.openFonts = of.checked; render(); };
+  for (const b of document.querySelectorAll("[data-play]")) b.onclick = () => { const i = b.parentElement.querySelector(".track i"); const w = i.parentElement.clientWidth - 12; i.style.transform = i.style.transform ? "" : `translateX(${w}px)`; };
+  for (const b of document.querySelectorAll("[data-fs]")) b.onclick = () => { state.ruleFilter.status = state.ruleFilter.status === b.dataset.fs ? null : b.dataset.fs; render(); };
+  for (const b of document.querySelectorAll("[data-ft]")) b.onclick = () => { state.ruleFilter.topic = state.ruleFilter.topic === b.dataset.ft ? null : b.dataset.ft; render(); };
+  for (const b of document.querySelectorAll("[data-resolve]")) b.onclick = () => resolveConflict(b.dataset.resolve, b.dataset.choice);
+  for (const b of document.querySelectorAll("[data-resolve-note]")) b.onclick = () => { const v = $(`[data-note="${b.dataset.resolveNote}"]`).value.trim(); if (v) resolveConflict(b.dataset.resolveNote, v); };
+  const dir = $("#direction"); if (dir) fetch("/api/export/image-direction").then((r) => r.text()).then((t) => (dir.textContent = t));
+  const rv = $("#runVerify"); if (rv) rv.onclick = async () => { const target = $("#target").value.trim(); if (!target) return; rv.disabled = true; try { state.verify = await runJob({ action: "verify", target }); render(); } finally { rv.disabled = false; } };
+  const fontsParam = () => ($("#origFonts")?.checked ? "?originalFonts=1" : "?");
+  for (const b of document.querySelectorAll("[data-preview]")) b.onclick = async () => { const p = $("#preview"); p.hidden = false; p.textContent = await (await fetch(`/api/export/${b.dataset.preview}${fontsParam()}`)).text(); p.scrollIntoView({ behavior: "smooth", block: "start" }); };
+  for (const b of document.querySelectorAll("[data-download]")) b.onclick = () => { location.href = `/api/export/${b.dataset.download}${fontsParam()}&download=1`; };
+}
+async function resolveConflict(conflictId, choice) {
+  await api("/api/resolve", { method: "POST", body: JSON.stringify({ conflictId, choice }) });
+  state.genome = await api("/api/genome");
+  render();
+}
+
+async function runJob(body) {
+  const log = $("#log");
+  log.textContent = "";
+  const { id } = await api("/api/jobs", { method: "POST", body: JSON.stringify(body) });
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 700));
+    const job = await api(`/api/jobs/${id}`);
+    log.textContent = job.log.join("\n");
+    log.scrollTop = log.scrollHeight;
+    if (job.status === "done") return job.result;
+    if (job.status === "failed") { log.textContent += `\nFailed: ${job.error}`; throw new Error(job.error); }
+  }
+}
+
+$("#name").onchange = async (e) => { await api("/api/name", { method: "POST", body: JSON.stringify({ name: e.target.value }) }); };
+async function addLinks() {
+  const value = $("#link").value.trim();
+  if (!value) return;
+  const uris = value.split(/\s+/).filter(Boolean);
+  try { await api("/api/sources", { method: "POST", body: JSON.stringify({ uris, dark: $("#dark").checked }) }); $("#link").value = ""; await load(); }
+  catch (e) { $("#log").textContent = e.message; }
+}
+$("#addLink").onclick = addLinks;
+$("#link").onkeydown = (e) => { if (e.key === "Enter") addLinks(); };
+async function upload(files) {
+  for (const f of files) {
+    $("#log").textContent = `Uploading ${f.name}…`;
+    try { await fetch(`/api/upload?name=${encodeURIComponent(f.name)}`, { method: "POST", body: f }).then(async (r) => { if (!r.ok) throw new Error((await r.json()).error); }); }
+    catch (e) { $("#log").textContent = `${f.name}: ${e.message}`; return; }
+  }
+  $("#log").textContent = "";
+  await load();
+}
+const drop = $("#drop");
+drop.onclick = () => $("#files").click();
+$("#files").onchange = (e) => upload([...e.target.files]);
+drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+drop.ondragleave = () => drop.classList.remove("over");
+drop.ondrop = (e) => { e.preventDefault(); drop.classList.remove("over"); upload([...e.dataTransfer.files]); };
+$("#run").onclick = async () => {
+  const b = $("#run"); b.disabled = true;
+  try { await runJob({ action: "extract-build", vision: $("#vision").checked }); await load(); }
+  catch {} finally { b.disabled = false; }
+};
+load().catch((e) => { $("#view").innerHTML = `<p>Could not load the project: ${esc(e.message)}</p>`; });
+</script>
+</body>
+</html>
