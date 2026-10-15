@@ -21,6 +21,9 @@ export interface AddSourceInput {
   readonly depicts?: string;
   readonly tags?: readonly string[];
   readonly options?: Record<string, unknown>;
+  /** Local file holding the bytes when `uri` is where they came from (collected assets). */
+  readonly file?: string;
+  readonly parent?: string;
 }
 
 const IMAGE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".gif", ".avif", ".tif", ".tiff", ".bmp", ".svg"]);
@@ -28,8 +31,18 @@ const VIDEO_EXT = new Set([".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi"]);
 const DOC_EXT = new Set([".pdf", ".md", ".markdown", ".txt", ".html", ".htm"]);
 
 /** Decide the source kind from a URL or path. Explicit kinds always win. */
+/** Pages that hold a set of works rather than one design: their media are collected as child sources. */
+export const COLLECTION_PATTERNS: readonly RegExp[] = [
+  /^https?:\/\/(www\.)?behance\.net\/gallery\/\d+/i,
+  /^https?:\/\/(www\.)?dribbble\.com\/shots\/\d+/i,
+  /^https?:\/\/(www\.)?(br\.)?pinterest\.[a-z.]+\/pin\//i,
+  /^https?:\/\/(www\.)?are\.na\//i,
+  /^https?:\/\/(www\.)?savee\.(it|com)\//i,
+];
+
 export const detectSourceKind = (uri: string): SourceKind => {
   if (/^https?:\/\/(www\.)?figma\.com\/(file|design|proto)\//i.test(uri)) return "figma";
+  if (COLLECTION_PATTERNS.some((r) => r.test(uri))) return "collection";
   const isUrl = /^https?:\/\//i.test(uri);
   const ext = extname(isUrl ? new URL(uri).pathname : uri).toLowerCase();
   if (IMAGE_EXT.has(ext)) return "image";
@@ -102,8 +115,8 @@ export class Project {
     const id = randomId("src");
     let storedPath: string | undefined;
     let sha256: string | undefined;
-    if (!isUrl(input.uri)) {
-      const abs = resolve(input.uri);
+    if (input.file || !isUrl(input.uri)) {
+      const abs = resolve(input.file ?? input.uri);
       const info = await stat(abs);
       if (!info.isFile()) throw new Error(`Not a file: ${abs}`);
       const dir = join(this.root, "sources", id);
@@ -130,6 +143,7 @@ export class Project {
       sha256,
       addedAt: new Date().toISOString(),
       depicts: input.depicts,
+      parent: input.parent,
       tags: input.tags ?? [],
       options: input.options ?? {},
     });
@@ -140,6 +154,7 @@ export class Project {
 
   async removeSource(id: string): Promise<void> {
     this.source(id);
+    for (const child of this.data.sources.filter((s) => s.parent === id)) await this.removeSource(child.id);
     this.data.sources = this.data.sources.filter((s) => s.id !== id);
     await rm(join(this.root, "sources", id), { recursive: true, force: true });
     await rm(join(this.root, "evidence", id), { recursive: true, force: true });
@@ -220,6 +235,12 @@ export class Project {
     const all = await this.loadResolutions();
     all[conflictId] = { choice, ...(note ? { note } : {}), at: new Date().toISOString() };
     await writeFile(join(this.root, "resolutions.json"), JSON.stringify(all, null, 2));
+  }
+
+  async setLabel(id: string, label: string): Promise<void> {
+    const source = this.source(id);
+    (source as { label?: string }).label = label;
+    await this.save();
   }
 
   async rename(name: string): Promise<void> {

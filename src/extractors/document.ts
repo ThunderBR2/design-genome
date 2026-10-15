@@ -202,7 +202,8 @@ export const documentExtractor: Extractor = {
       pages = [ext === ".html" || ext === ".htm" ? htmlToText(raw) : raw];
     }
     log(`document: ${pages.length} page(s)`);
-    const collector = new ObservationCollector(source.id, "document", "declared");
+    // A case study written by a third party describes the work; it is not the brand declaring rules.
+    const collector = new ObservationCollector(source.id, "document", source.options.caseStudy ? "inferred" : "declared");
     for (const finding of parseDocumentText(pages)) {
       collector.add({
         value: finding.value,

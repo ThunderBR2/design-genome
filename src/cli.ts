@@ -19,7 +19,7 @@ const program = new Command();
 program
   .name("genome")
   .description("Reverse-engineer design systems from sites, documents, images, videos and Figma files — with evidence for every fact.")
-  .version("0.1.0")
+  .version("0.2.0")
   .option("-p, --project <dir>", "project directory", DEFAULT_PROJECT_DIR)
   .option("-q, --quiet", "no progress output");
 
@@ -206,6 +206,11 @@ program
     const { url } = await startStudio(service(), { port: Number(o.port), host: o.host });
     print(`Design Genome Studio running at ${url}`);
   });
+
+program.command("worker", { hidden: true }).description("internal: run one MCP tool call from stdin").action(async () => {
+  const { runWorker } = await import("./tools.js");
+  await runWorker();
+});
 
 program.command("mcp").description("serve the genome to AI agents over MCP (stdio)").action(async () => {
   const { startMcpServer } = await import("./mcp.js");

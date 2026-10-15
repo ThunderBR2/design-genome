@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
 import type { Genome } from "./core/genome.js";
@@ -10,6 +10,28 @@ import { queryGenome, type Facet, type QueryOptions } from "./query.js";
 import { buildGenome } from "./reconcile/build.js";
 import { verify, type VerifyReport } from "./verify/index.js";
 import { visionExtraction, visionImages, type VisionImage, type VisionReply } from "./extractors/vision.js";
+
+const MEDIA = /\.(png|jpe?g|webp|gif|avif|tiff?|bmp|svg|mp4|mov|m4v|webm|mkv|avi|pdf|md|markdown|txt)$/i;
+
+/** A local folder becomes every image, video and document inside it (two levels deep). */
+export const expandFolders = async (inputs: readonly AddSourceInput[]): Promise<AddSourceInput[]> => {
+  const out: AddSourceInput[] = [];
+  for (const input of inputs) {
+    if (/^https?:/i.test(input.uri) || input.file) { out.push(input); continue; }
+    const info = await stat(input.uri).catch(() => null);
+    if (!info?.isDirectory()) { out.push(input); continue; }
+    const walk = async (dir: string, depth: number): Promise<void> => {
+      for (const entry of (await readdir(dir, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name))) {
+        if (entry.name.startsWith(".") || entry.name.startsWith("_")) continue;
+        const path = join(dir, entry.name);
+        if (entry.isDirectory() && depth < 2) await walk(path, depth + 1);
+        else if (entry.isFile() && MEDIA.test(entry.name)) out.push({ ...input, uri: path, label: entry.name.replace(/\.[^.]+$/, "") });
+      }
+    };
+    await walk(input.uri, 0);
+  }
+  return out;
+};
 
 export const DEFAULT_PROJECT_DIR = process.env.GENOME_PROJECT ?? ".genome";
 
@@ -36,7 +58,7 @@ export class GenomeService {
   async add(inputs: readonly AddSourceInput[]): Promise<Source[]> {
     const project = await this.project();
     const out: Source[] = [];
-    for (const input of inputs) out.push(await project.addSource(input));
+    for (const input of await expandFolders(inputs)) out.push(await project.addSource(input));
     return out;
   }
 
@@ -68,7 +90,7 @@ export class GenomeService {
     const project = await this.project();
     const out: Source[] = [];
     for (const s of project.sources) {
-      if (!["image", "video", "web"].includes(s.kind)) continue;
+      if (!["image", "video", "web"].includes(s.kind)) continue; // collections are read through their children
       if (!(await project.hasExtraction(s.id, PRIMARY[s.kind].name))) continue;
       if (await project.hasExtraction(s.id, "vision")) continue;
       out.push(s);

@@ -32,6 +32,16 @@ A ideia vem do [REA](https://github.com/morluto/rea), que faz engenharia reversa
 
 Várias fontes da mesma marca se reforçam. Fontes de marcas diferentes podem ser combinadas num mesmo projeto para criar um genoma híbrido.
 
+### Links do Behance e de galerias
+
+Cole o link e pronto: o Design Genome baixa tudo sozinho.
+
+- **Projeto do Behance** (`behance.net/gallery/...`): todas as imagens na maior resolução disponível, as grades de imagens, os vídeos do player da Adobe e do Vimeo (salvos em MP4), a capa dos vídeos do YouTube e os textos do projeto. Cada arquivo vira uma fonte "filha" do projeto, com o link de origem guardado.
+- **Dribbble, Pinterest, Are.na e qualquer página de portfólio**: as imagens grandes (ignorando avatares e ícones) e os vídeos da página. Em sites que não são reconhecidos, use `kind: "collection"` para tratar a página como galeria em vez de medir o site.
+- **Pastas**: um caminho de pasta adiciona todas as imagens, vídeos e PDFs dentro dela.
+
+Os textos de um case do Behance entram como leitura inferida, não como regra da marca: quem escreveu foi o autor do projeto.
+
 ## Como o cruzamento funciona
 
 ```mermaid
@@ -140,13 +150,18 @@ claude mcp add design-genome -- node /caminho/design-genome/dist/cli.js -p /cami
 }
 ```
 
+Cada chamada roda num processo novo, então atualizações valem na hora, sem fechar o Claude.
+
 Ferramentas:
 
 | Ferramenta | Para quê |
 |---|---|
 | `genome_brief` | O genoma inteiro em markdown compacto, ordenado por confiança |
 | `genome_query` | Uma faceta em JSON (cor, tipografia, espaço, forma, movimento, imagem, voz, regras, conflitos, desconhecidos, fontes), com filtros por papel, viewport, tópico, status e confiança |
-| `genome_add_sources` | Adiciona e processa links e arquivos |
+| `genome_add_sources` | Adiciona e processa links (sites, Behance, galerias, Figma), arquivos e pastas |
+| `genome_projects` | Lista ou cria projetos de marca; qualquer ferramenta aceita `project` |
+| `genome_remove_source` | Remove fontes (uma coleção leva junto os filhos) |
+| `genome_update` | Baixa e instala a versão mais nova do GitHub, sem reiniciar o Claude |
 | `genome_sources` | Fontes com cobertura e limitações |
 | `genome_rebuild` | Reextrai e reconstrói |
 | `genome_resolve_conflict` | Registra uma decisão do usuário |

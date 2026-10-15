@@ -22,7 +22,7 @@ export const PRECISION_WEIGHT: Record<Precision, number> = {
   inferred: 0.4,
 };
 
-export const SOURCE_KINDS = ["web", "image", "video", "document", "figma"] as const;
+export const SOURCE_KINDS = ["web", "image", "video", "document", "figma", "collection"] as const;
 export const sourceKindSchema = z.enum(SOURCE_KINDS);
 export type SourceKind = z.infer<typeof sourceKindSchema>;
 
@@ -38,6 +38,8 @@ export const sourceSchema = z.object({
   addedAt: z.string(),
   /** Optional link to a source this one depicts, e.g. a screenshot of a web page. */
   depicts: z.string().optional(),
+  /** The collection (Behance project, gallery page) this source was collected from. */
+  parent: z.string().optional(),
   /** Free-form tags the user attaches, e.g. "campaign-2025", "mobile". */
   tags: z.array(z.string()).default([]),
   options: z.record(z.unknown()).default({}),

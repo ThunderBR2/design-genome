@@ -40,4 +40,14 @@ shots.forEach((s, i) => {
 });
 filters.push(`${shots.map((_, i) => `[v${i}]`).join("")}concat=n=${shots.length}:v=1:a=0[out]`);
 execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", ...inputs, "-filter_complex", filters.join(";"), "-map", "[out]", "-c:v", "libx264", "-pix_fmt", "yuv420p", join(out, "campaign.mp4")]);
+// Gallery fixtures: large works, a small avatar that must be ignored, and a second clip for the iframe player.
+const sharp = (await import("sharp")).default;
+const grad = (w: number, h: number, a: string, b: string) => Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${a}"/><stop offset="1" stop-color="${b}"/></linearGradient></defs><rect width="100%" height="100%" fill="url(#g)"/><rect x="${w * 0.3}" y="${h * 0.3}" width="${w * 0.4}" height="${h * 0.4}" rx="40" fill="#ffffff"/></svg>`);
+await sharp(grad(1600, 1000, "#f6a96a", "#b58be6")).jpeg().toFile(join(out, "gallery-1.jpg"));
+await sharp(grad(800, 500, "#f6a96a", "#b58be6")).jpeg().toFile(join(out, "gallery-1-small.jpg"));
+await sharp(grad(1200, 1200, "#ccE7da", "#14301f")).png().toFile(join(out, "gallery-2.png"));
+await sharp(grad(1400, 900, "#eeeeeb", "#161816")).jpeg().toFile(join(out, "gallery-3.jpg"));
+await sharp(grad(1200, 630, "#161816", "#1f4535")).jpeg().toFile(join(out, "gallery-cover.jpg"));
+await sharp(grad(64, 64, "#000000", "#ff0000")).png().toFile(join(out, "avatar.png"));
+execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "color=c=0x1f4535:s=640x360:d=2:r=30", "-vf", "drawbox=x='100+60*t':y=120:w=200:h=120:color=0xf6a96a:t=fill,format=yuv420p", "-c:v", "libx264", join(out, "player-clip.mp4")]);
 console.log(`fixtures written to ${out}`);

@@ -1,5 +1,6 @@
 import type { Project } from "../core/project.js";
 import type { Extraction, SourceKind } from "../core/types.js";
+import { collectionExtractor } from "./collection.js";
 import { documentExtractor } from "./document.js";
 import { figmaExtractor } from "./figma.js";
 import { imageExtractor } from "./image.js";
@@ -14,6 +15,7 @@ export const PRIMARY: Record<SourceKind, Extractor> = {
   video: videoExtractor,
   document: documentExtractor,
   figma: figmaExtractor,
+  collection: collectionExtractor,
 };
 
 export const VISION_KINDS: readonly SourceKind[] = ["image", "video", "web"];
@@ -35,9 +37,13 @@ export interface ExtractOutcome {
 /** Run the primary extractor (and optionally vision) for each requested source. Failures stay per source. */
 export const extractSources = async (project: Project, sourceIds: readonly string[] | "all", options: ExtractOptions = {}): Promise<ExtractOutcome[]> => {
   const log = options.log ?? (() => undefined);
-  const ids = sourceIds === "all" ? project.sources.map((s) => s.id) : sourceIds;
+  const queue = [...(sourceIds === "all" ? project.sources.map((s) => s.id) : sourceIds)];
+  const done = new Set<string>();
   const outcomes: ExtractOutcome[] = [];
-  for (const id of ids) {
+  while (queue.length) {
+    const id = queue.shift()!;
+    if (done.has(id)) continue;
+    done.add(id);
     const source = project.source(id);
     const plan: Extractor[] = [PRIMARY[source.kind]];
     if (options.vision && VISION_KINDS.includes(source.kind)) plan.push(visionExtractor);
@@ -57,6 +63,8 @@ export const extractSources = async (project: Project, sourceIds: readonly strin
         log(`${extractor.name} failed for ${source.uri}: ${message}`);
       }
     }
+    // A collection's children are measured right after it.
+    if (source.kind === "collection") for (const child of project.sources.filter((s) => s.parent === id)) queue.push(child.id);
   }
   return outcomes;
 };
