@@ -7,6 +7,8 @@ export interface PageElement {
   readonly selector: string;
   readonly tag: string;
   readonly box: { x: number; y: number; w: number; h: number };
+  /** Extent of the element's text itself (not its block): what the eye sees as the text block. */
+  readonly textBox?: { x: number; y: number; w: number; h: number };
   readonly text: string;
   readonly ownText: boolean;
   readonly fontFamily: string;
@@ -127,7 +129,15 @@ export function collectPage(maxElements: number): PageCollection {
     const ownText = [...el.childNodes].some((n) => n.nodeType === 3 && (n.textContent ?? "").trim().length > 0);
     const text = ownText ? (el.textContent ?? "").replace(/\s+/g, " ").trim().slice(0, 160) : "";
     const tag = el.tagName.toLowerCase();
+    let textBox: PageElement["textBox"];
+    if (ownText) {
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const tr = range.getBoundingClientRect();
+      if (tr.width >= 1 && tr.height >= 1) textBox = { x: Math.round(tr.x), y: Math.round(tr.y + window.scrollY), w: Math.round(tr.width), h: Math.round(tr.height) };
+    }
     elements.push({
+      ...(textBox ? { textBox } : {}),
       selector: selectorOf(el),
       tag,
       box: { x: Math.round(rect.x), y: Math.round(rect.y + window.scrollY), w: Math.round(rect.width), h: Math.round(rect.height) },

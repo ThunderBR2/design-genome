@@ -5,7 +5,7 @@ import type { Genome, Support } from "./core/genome.js";
  * down to one reference and observation ids; "full" returns everything.
  */
 
-export const FACETS = ["overview", "color", "typography", "spacing", "shape", "motion", "imagery", "voice", "rules", "conflicts", "unknowns", "sources"] as const;
+export const FACETS = ["overview", "anatomy", "concept", "color", "typography", "spacing", "shape", "motion", "imagery", "voice", "rules", "conflicts", "unknowns", "sources"] as const;
 export type Facet = (typeof FACETS)[number];
 
 export interface QueryOptions {
@@ -15,6 +15,8 @@ export interface QueryOptions {
   readonly topic?: string;
   readonly status?: Support["status"];
   readonly minConfidence?: number;
+  /** anatomy: one piece id for its full measurements and reading. */
+  readonly piece?: string;
 }
 
 const slimSupport = (s: Support) => ({
@@ -47,6 +49,7 @@ export const queryGenome = (g: Genome, facet: Facet, options: QueryOptions = {})
         name: g.name,
         builtAt: g.builtAt,
         sources: g.sources.map((s) => ({ id: s.id, kind: s.kind, label: s.label ?? s.uri, observations: s.observations })),
+        anatomy: g.anatomy ? { pieces: g.anatomy.pieces.length, read: g.anatomy.pieces.filter((p) => p.reading).length, concept: Boolean(g.anatomy.concept) } : null,
         counts: {
           colors: g.color.tokens.length,
           families: g.typography.families.length,
@@ -63,6 +66,22 @@ export const queryGenome = (g: Genome, facet: Facet, options: QueryOptions = {})
           topRules: [...g.rules].sort((a, b) => b.support.confidence - a.support.confidence).slice(0, 8).map((r) => `[${r.support.status}] ${r.statement}`),
         },
       };
+    case "anatomy": {
+      const a = g.anatomy;
+      if (!a) return { pieces: [], note: "Built before the anatomy existed: call genome_rebuild." };
+      if (options.piece) return a.pieces.find((p) => p.id === options.piece) ?? { error: `Unknown piece ${options.piece}`, pieces: a.pieces.map((p) => p.id) };
+      return {
+        pieces: a.pieces.map((p) => (options.detail === "full" ? p : {
+          id: p.id, label: p.label, kind: p.kind, precision: p.precision, canvas: `${p.canvas.w}×${p.canvas.h} (${p.canvas.aspectName})`,
+          measured: p.measured.slice(0, 4),
+          ...(p.reading ? { pieceType: p.reading.pieceType, summary: p.reading.summary, structure: p.reading.composition.structure, whyItWorks: p.reading.whyItWorks.slice(0, 3) } : { read: false }),
+        })),
+        invariants: a.invariants,
+        concept: a.concept ? { bigIdea: a.concept.bigIdea, concept: a.concept.concept } : null,
+      };
+    }
+    case "concept":
+      return g.anatomy?.concept ?? { concept: null, note: "No concept yet: dissect the pieces, then call genome_concept_request." };
     case "color":
       return view({ ...g.color, tokens: g.color.tokens.filter((t) => passes(t.support, options)) });
     case "typography":

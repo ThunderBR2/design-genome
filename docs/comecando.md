@@ -87,11 +87,19 @@ Dicas para um genoma mais preciso:
 - Se uma imagem for um print de uma página que você adicionou, diga isso ("este print é da página do iPhone"). O Claude passa `depicts` e o print é calibrado.
 - Várias fontes da mesma marca se confirmam entre si. Fontes de marcas diferentes criam um genoma híbrido.
 
-## 5. Deixar o Claude olhar as imagens
+## 5. Dissecar as peças e ler o projeto
 
-> Rode a passada de visão em todas as fontes.
+> Disseque todas as peças e depois leia o conceito do projeto.
 
-O Claude recebe as imagens, analisa iluminação, câmera, enquadramento e composição, e grava as leituras no genoma. Isso usa o seu plano, sem chave de API.
+Cada imagem, plano de vídeo e seção de site já chega medida: elementos numerados, margens, distâncias, alinhamentos, grid, ritmo, hierarquia, equilíbrio e respiro. O Claude recebe cada peça com essa anatomia desenhada por cima e explica o que é cada elemento e por que ele está ali, por que a peça funciona e o que a quebraria. No fim, olha todas as peças juntas e escreve o conceito: a ideia, por que o projeto é assim, o que nunca muda, o que varia e como adaptar. Isso usa o seu plano, sem chave de API.
+
+Para uma leitura mais rápida, sem dissecar peça por peça, ainda existe a passada de visão: "rode a passada de visão em todas as fontes".
+
+Para criar uma peça nova a partir disso:
+
+> Faça a planta de um story de lançamento do menu de outono e depois produza.
+
+A planta traz as referências escolhidas, o layout redesenhado no formato pedido, em px, o porquê de cada elemento e um wireframe.
 
 ## 6. Revisar o que foi aprendido
 

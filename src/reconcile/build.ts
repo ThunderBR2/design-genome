@@ -1,5 +1,6 @@
+import { projectAnatomy } from "../anatomy/reading.js";
 import { colorDistance } from "../core/color.js";
-import type { Conflict, Genome, GenomeSource, Rule } from "../core/genome.js";
+import type { Conflict, Genome, GenomeAnatomy, GenomeSource, Rule } from "../core/genome.js";
 import type { Project } from "../core/project.js";
 import type { Extraction, Source } from "../core/model.js";
 import { ReconcileContext } from "./context.js";
@@ -123,6 +124,16 @@ export const buildGenome = async (project: Project): Promise<Genome> => {
   }
   for (const s of project.sources) if (!extractions.some((e) => e.sourceId === s.id)) unknowns.push(`${s.label ?? s.uri} has not been extracted yet.`);
 
+  const pa = await projectAnatomy(project);
+  const anatomy: GenomeAnatomy = {
+    pieces: pa.pieces.map((p) => ({ id: p.id, sourceId: p.sourceId, label: p.label, kind: p.kind, precision: p.precision, overlay: p.overlay, canvas: { w: p.anatomy.canvas.w, h: p.anatomy.canvas.h, aspectName: p.anatomy.canvas.aspectName }, measured: p.anatomy.summary, ...(p.reading ? { reading: p.reading } : {}) })),
+    invariants: pa.invariants,
+    concept: pa.concept,
+  };
+  const undissected = anatomy.pieces.filter((p) => !p.reading).length;
+  if (anatomy.pieces.length && undissected) unknowns.push(`${undissected} of ${anatomy.pieces.length} piece(s) are measured but not read: the why of each element is unknown until genome_dissect_request/submit runs on them.`);
+  if (anatomy.pieces.some((p) => p.reading) && !anatomy.concept) unknowns.push("No project concept yet: call genome_concept_request after dissecting the pieces.");
+
   return {
     schema: "design-genome/1",
     name: project.name,
@@ -135,5 +146,6 @@ export const buildGenome = async (project: Project): Promise<Genome> => {
     rules,
     conflicts,
     unknowns,
+    anatomy,
   };
 };

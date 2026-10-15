@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 import sharp from "sharp";
@@ -85,7 +86,7 @@ const bodySizeOf = (elements: readonly PageElement[]): number => {
 
 export const webExtractor: Extractor = {
   name: "web",
-  version: "1.0.0",
+  version: "1.1.0",
   async extract({ project, source, log }: ExtractContext) {
     const started = new Date();
     const { chromium } = await import("playwright");
@@ -126,6 +127,8 @@ export const webExtractor: Extractor = {
           await page.screenshot({ path: shot.abs, type: "jpeg", quality: 72, clip: { x: 0, y: 0, width: viewport, height } });
           if (data.docHeight > MAX_SCREENSHOT_HEIGHT) limitations.push(`Screenshot at ${viewport}px stops at ${MAX_SCREENSHOT_HEIGHT}px of ${data.docHeight}px.`);
 
+          const layout = await project.artifact(source.id, `layout-${viewport}.json`);
+          await writeFile(layout.abs, JSON.stringify(layoutDump(data)));
           const rendered = await renderedFonts(page, data.elements);
           (meta.renderedFonts as Record<string, string[]>)[String(viewport)] = rendered;
           await collectObservations(collector, data, viewport, source.id, shot.rel, rendered, limitations);
@@ -364,3 +367,54 @@ async function cropTypeSamples(
     });
   }
 }
+
+/** The boxes the anatomy needs from a rendered page: text, media, controls and colored surfaces. */
+export interface LayoutElement {
+  readonly selector: string;
+  readonly tag: string;
+  readonly box: { x: number; y: number; w: number; h: number };
+  readonly text?: string;
+  readonly fontSize?: number;
+  readonly fontWeight?: number;
+  readonly fontFamily?: string;
+  readonly lineHeight?: string;
+  readonly color?: string;
+  readonly background?: string;
+  readonly hasBackgroundImage?: boolean;
+  readonly borderWidth?: number;
+  readonly radius?: number;
+  readonly interactive?: boolean;
+}
+
+export interface LayoutDump {
+  readonly url: string;
+  readonly viewport: number;
+  readonly docHeight: number;
+  readonly elements: readonly LayoutElement[];
+}
+
+const MEDIA_TAGS = new Set(["img", "svg", "video", "picture", "canvas", "iframe"]);
+
+export const layoutDump = (data: PageCollection): LayoutDump => {
+  const out: LayoutElement[] = [];
+  for (const el of data.elements) {
+    const area = el.box.w * el.box.h;
+    const transparent = !el.background || /rgba\(.*,\s*0\)$/.test(el.background) || el.background === "transparent";
+    const keep = (el.ownText && el.text.length > 0) || MEDIA_TAGS.has(el.tag) || el.isInteractive || (!transparent && area > 2000) || (el.borderWidth > 0 && area > 2000) || (Boolean(el.backgroundImage) && area > 4000);
+    if (!keep || el.box.w < 2 || el.box.h < 2) continue;
+    out.push({
+      selector: el.selector,
+      tag: el.tag,
+      // Text is measured by its own extent; a paragraph's block is usually as wide as its container.
+      box: el.ownText && el.textBox && !el.isInteractive ? el.textBox : el.box,
+      ...(el.ownText && el.text ? { text: el.text.slice(0, 80), fontSize: el.fontSize, fontWeight: el.fontWeight, fontFamily: primaryFamily(el.fontFamily), lineHeight: el.lineHeight } : {}),
+      color: el.color,
+      ...(!transparent ? { background: el.background } : {}),
+      ...(el.backgroundImage ? { hasBackgroundImage: true } : {}),
+      ...(el.borderWidth ? { borderWidth: el.borderWidth } : {}),
+      ...(el.radius ? { radius: el.radius } : {}),
+      ...(el.isInteractive ? { interactive: true } : {}),
+    });
+  }
+  return { url: data.url, viewport: data.viewport, docHeight: data.docHeight, elements: out };
+};

@@ -5,6 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
+import { FORMATS } from "./anatomy/blueprint.js";
 import { SOURCE_KINDS } from "./core/model.js";
 import { EXPORT_FORMATS } from "./export/index.js";
 import { FACETS } from "./query.js";
@@ -24,7 +25,9 @@ Start with genome_brief (compact, everything an agent needs to design in the sys
 Every fact carries support: confirmed (2+ sources agree), single-source, declared-only (stated, not seen in practice) or conflicted.
 Prefer confirmed facts; ask the user about open conflicts instead of picking a side; never invent values listed as unknown.
 After you produce a design, call genome_verify on it and fix the reported deviations.
-To name art direction in images, video frames and page captures, you are the vision model: call genome_vision_request, look at the images, then genome_vision_submit. Repeat while sources remain. No API key is needed.
+Every image, video shot and page section is also a "piece" with a measured anatomy: element boxes, margins, distances, alignment edges, grid, spacing rhythm, hierarchy, balance, proportion, whitespace and reading path (exact for sites, estimated for pixels). You are the one who reads why: call genome_dissect_request, look at the piece and its annotated overlay, and answer with genome_dissect_submit (role and reason of each element, composition, why it works, intent, what is fragile, reusable rules). Repeat until every piece is read, then call genome_concept_request and genome_concept_submit for the project as a whole (big idea, why it is this way, constants, variables, grammar, adaptation). No API key is needed.
+To create a new piece, call genome_blueprint with the request and the format: it picks the closest references, re-lays the best one out on the new canvas in px, and gathers the concept, constants, reasons and rules to keep. Build from it, then genome_verify.
+The older genome_vision_request/submit pass reads a whole source at once; dissection supersedes it when you have time to read piece by piece.
 Logos, icons, photography, copy and restricted typefaces of reference brands must not be copied into deliverables.`;
 
 const project = z.string().optional().describe('project name (see genome_projects); default is the configured project');
@@ -58,7 +61,7 @@ const runTool = (cliPath: string, projectDir: string, client: () => string) =>
   };
 
 export const createMcpServer = (projectDir: string, cliPath = resolve(process.argv[1] ?? "dist/cli.js")): McpServer => {
-  const server = new McpServer({ name: "design-genome", version: "0.2.0" }, { instructions: INSTRUCTIONS });
+  const server = new McpServer({ name: "design-genome", version: "0.3.0" }, { instructions: INSTRUCTIONS });
   const call = runTool(cliPath, resolve(projectDir), () => server.server.getClientVersion()?.name ?? "MCP host");
   interface ToolConfig { title: string; description: string; inputSchema: z.ZodRawShape; annotations?: { readOnlyHint?: boolean } }
   const tool = (name: string, config: ToolConfig): void => {
@@ -74,6 +77,7 @@ export const createMcpServer = (projectDir: string, cliPath = resolve(process.ar
       project,
       facet: z.enum(FACETS),
       detail: z.enum(["summary", "full"]).optional(),
+      piece: z.string().optional().describe("anatomy: one piece id for its full measurements and reading"),
       role: z.string().optional().describe("typography role: display, headline, title, body, callout, caption, button, link"),
       viewport: z.number().optional(),
       topic: z.string().optional(),
@@ -137,6 +141,89 @@ export const createMcpServer = (projectDir: string, cliPath = resolve(process.ar
       })).max(16).optional(),
     },
   });
+  const reasoned = z.string().describe("write in the user's language");
+  tool("genome_dissect_request", {
+    title: "Dissect the next piece",
+    description: "Returns the next piece without a reading (or the given pieceId): the piece, the same piece with its measured anatomy drawn on it (numbered blocks, margins, alignment edges, gaps), and the measurements. Read it as an art director and answer with genome_dissect_submit.",
+    inputSchema: { project, pieceId: z.string().optional().describe("e.g. src_ab12#1; default is the next unread piece"), maxWidth: z.number().min(512).max(1600).optional() },
+    annotations: { readOnlyHint: true },
+  });
+  tool("genome_dissect_submit", {
+    title: "Store a piece's dissection",
+    description: "Stores your reading of one piece: what each numbered block is and why it is there, the composition and its principles, why the piece works, its intent, what is fragile, and reusable rules (which join the genome as inferred rules and are cross-checked against other sources). Then rebuilds.",
+    inputSchema: {
+      project,
+      pieceId: z.string(),
+      pieceType: z.string().describe("poster, social post, story, banner, ad, packaging, landing hero, product section, slide, film frame…"),
+      summary: reasoned,
+      elements: z.array(z.object({
+        block: z.number().int().positive().optional().describe("block number from the overlay"),
+        box: z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() }).optional().describe("share-of-canvas box (0..1) for an element the measurement missed"),
+        role: z.string(),
+        content: z.string().optional(),
+        treatment: z.string().optional(),
+        why: z.string().describe("why it is there, at that position, size and distance — cite the measurements"),
+      })).max(80),
+      composition: z.object({
+        structure: z.string(),
+        eyePath: z.string(),
+        balance: z.string().optional(),
+        principles: z.array(z.object({ name: z.string(), how: z.string(), why: z.string() })).max(16),
+      }),
+      whyItWorks: z.array(z.string()).max(12),
+      intent: z.object({ message: z.string(), audience: z.string().optional(), emotion: z.string().optional(), action: z.string().optional() }),
+      typography: z.string().optional(),
+      color: z.string().optional(),
+      imagery: z.string().optional(),
+      fragile: z.array(z.string()).max(12).optional(),
+      corrections: z.array(z.string()).max(20).optional().describe("wrong merges/splits or misread kinds in the measurement"),
+      rules: z.array(z.object({
+        topic: z.enum(["composition", "layout", "typography", "imagery", "color", "voice", "iconography", "motion", "lighting", "camera"]),
+        statement: z.string().min(8),
+        polarity: z.enum(["must", "never", "should", "avoid", "fact"]),
+        confidence: z.number().min(0).max(1),
+      })).max(16).optional(),
+    },
+  });
+  tool("genome_concept_request", {
+    title: "Read the project as a whole",
+    description: "Returns a contact sheet of every piece, each piece's reading, the measured constants and variations across pieces, and the genome highlights, so you can explain the project: its big idea, why it is this way, what never changes, what varies, its grammar and how to adapt it. Answer with genome_concept_submit.",
+    inputSchema: { project },
+    annotations: { readOnlyHint: true },
+  });
+  tool("genome_concept_submit", {
+    title: "Store the project concept",
+    description: "Stores the project-level reading (big idea, concept, why, audience, personality, narrative, visual devices, constants, variables, grammar, signature moves, adaptation, what to avoid) and rebuilds. It then leads the brief and every blueprint.",
+    inputSchema: {
+      project,
+      bigIdea: reasoned,
+      concept: reasoned,
+      why: reasoned,
+      audience: z.string().optional(),
+      personality: z.array(z.string()).max(12).optional(),
+      narrative: z.string().optional(),
+      metaphors: z.array(z.string()).max(12).optional(),
+      constants: z.array(z.object({ what: z.string(), why: z.string() })).max(20),
+      variables: z.array(z.object({ what: z.string(), range: z.string(), why: z.string().optional() })).max(20),
+      grammar: z.array(z.string()).max(16),
+      signatureMoves: z.array(z.string()).max(12).optional(),
+      adaptation: z.array(z.string()).max(16).optional(),
+      avoid: z.array(z.string()).max(16).optional(),
+    },
+  });
+  tool("genome_blueprint", {
+    title: "Plan a new piece",
+    description: `Plans a new piece from the dissected references: picks the closest pieces for the request and format, re-lays the best one out on the new canvas (margins and type scale with the short side, stacks keep their gaps, the main image flexes), and returns the boxes in px with the reason for each element, the concept, measured constants, palette, type and rules to keep, a wireframe and the reference overlays. Formats: ${Object.keys(FORMATS).join(", ")}; or width and height.`,
+    inputSchema: {
+      project,
+      request: z.string().describe("what to create, in the user's words"),
+      format: z.string().optional(),
+      width: z.number().int().positive().optional(),
+      height: z.number().int().positive().optional(),
+      pieceType: z.string().optional(),
+      references: z.array(z.string()).optional().describe("piece ids to base it on; default picks the closest"),
+    },
+  });
   tool("genome_projects", { title: "Projects", description: "List the brand projects, or create one with `create: \"<name>\"`. Each project is its own genome.", inputSchema: { create: z.string().optional() } });
   tool("genome_update", { title: "Update Design Genome", description: "Download and install the latest Design Genome from GitHub. Tool logic updates immediately; new tools or parameters appear after Claude restarts.", inputSchema: {} });
 
@@ -160,6 +247,30 @@ export const createMcpServer = (projectDir: string, cliPath = resolve(process.ar
             `4. No Figma ${figma ? `(arquivo ${figma})` : "(crie um arquivo novo)"}: variáveis, estilos de texto, componentes e uma página de exemplo com textos originais.`,
             "5. Verifique com genome_verify e corrija os desvios altos e médios.",
             "Não use logos, ícones, fotos ou textos das marcas de referência.",
+          ].join("\n"),
+        },
+      }],
+    }),
+  );
+  server.registerPrompt(
+    "criar-peca-a-partir-das-referencias",
+    {
+      title: "Criar uma peça nova a partir das referências",
+      description: "Dissect the references (if needed), read the project concept, plan the new piece with a blueprint, build it and verify it.",
+      argsSchema: { pedido: z.string(), formato: z.string().optional() },
+    },
+    ({ pedido, formato }) => ({
+      messages: [{
+        role: "user",
+        content: {
+          type: "text",
+          text: [
+            `Quero criar: ${pedido}${formato ? ` (formato: ${formato})` : ""}.`,
+            "1. Leia genome_brief. Se houver peças medidas e ainda não lidas, rode genome_dissect_request/genome_dissect_submit em cada uma (o que é cada elemento, por que está ali, por que a peça funciona).",
+            "2. Se ainda não houver conceito do projeto, rode genome_concept_request/genome_concept_submit.",
+            `3. Chame genome_blueprint com o pedido${formato ? ` e o formato ${formato}` : " e o formato certo"}. Me mostre a planta: referências escolhidas, o layout adaptado e o porquê de cada elemento, antes de produzir.`,
+            "4. Produza a peça seguindo a planta, com conteúdo original (sem logos, fotos ou textos das referências).",
+            "5. Verifique com genome_verify e corrija os desvios altos e médios.",
           ].join("\n"),
         },
       }],

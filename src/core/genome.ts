@@ -1,4 +1,5 @@
 import type { GridFit, LinearFit, ScaleFit } from "./numeric.js";
+import type { Concept, Invariant, PieceReading } from "../anatomy/types.js";
 import type { Evidence, Oklch, Precision, SourceKind } from "./types.js";
 
 /**
@@ -151,6 +152,26 @@ export interface GenomeSource {
   readonly calibration?: { readonly scale: number; readonly method: string; readonly against: string };
 }
 
+/** One dissected piece as the genome carries it: measurements as sentences, plus the reading. */
+export interface GenomePiece {
+  readonly id: string;
+  readonly sourceId: string;
+  readonly label: string;
+  readonly kind: "image" | "video-shot" | "web-section";
+  readonly precision: "exact" | "estimated";
+  readonly overlay: string;
+  readonly canvas: { readonly w: number; readonly h: number; readonly aspectName: string };
+  readonly measured: readonly string[];
+  readonly reading?: PieceReading;
+}
+
+export interface GenomeAnatomy {
+  readonly pieces: readonly GenomePiece[];
+  /** Per group ("visual" for images and shots, "web" for page sections): what stays constant across pieces. */
+  readonly invariants: Readonly<Record<string, readonly Invariant[]>>;
+  readonly concept: Concept | null;
+}
+
 export interface Genome {
   readonly schema: "design-genome/1";
   readonly name: string;
@@ -184,4 +205,6 @@ export interface Genome {
   readonly rules: readonly Rule[];
   readonly conflicts: readonly Conflict[];
   readonly unknowns: readonly string[];
+  /** Dissection of each piece and the project concept. Absent in genomes built before the anatomy existed. */
+  readonly anatomy?: GenomeAnatomy;
 }

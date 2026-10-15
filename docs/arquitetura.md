@@ -19,7 +19,7 @@ Source ──extractor──▶ Extraction { observations[], coverage[], limitat
    palette · typography · spacing · radius · shadow · motion · breakpoints · layout · imagery · voice
                                   │
                  deriveRules · collectStatedRules · detectConflicts · evaluateCheck
-                                  │
+                                  │                                  anatomy (peças medidas + leituras + conceito)
                               Genome (genome.json)
                                   │
            query (MCP/CLI) · export (brief, tokens, css, tailwind, image-direction) · verify
@@ -42,6 +42,18 @@ Source ──extractor──▶ Extraction { observations[], coverage[], limitat
 | `image` | k-means++ determinístico em OKLab, fusão de clusters próximos, região dominante por cluster; gradiente de luminosidade para espaço negativo, detalhe, foco, colunas e margens. |
 | `video` | `ffprobe`, detecção de cena do ffmpeg, um quadro por plano (até 48), análise de imagem por quadro ponderada pela duração do plano, diferença entre quadros para intensidade. |
 | `vision` | Envia até 8 evidências a um modelo multimodal e pede regras de direção de arte em JSON, cada uma citando as imagens. Só roda com `ANTHROPIC_API_KEY`. |
+
+## Anatomia
+
+Cada fonte de imagem, vídeo ou site vira **peças** (`anatomy/<fonte>.json`): a imagem inteira, até 6 planos do filme, as seções da página no maior e no menor viewport (cortadas onde há um vão vertical no conteúdo).
+
+- **Blocos.** Em sites, as caixas que o navegador renderizou (`layout-<viewport>.json`, gravado pelo extrator web), com a extensão do próprio texto (Range) e não do bloco que o contém: exatas. Em pixels: cor de fundo pela borda; máscara do que difere do fundo (cor ou borda), fechamento morfológico mais largo na horizontal para juntar letras em palavras e linhas, componentes conexos, e classificação por cobertura, uniformidade do anel interno, faixas de linhas e transições por linha. Painéis e botões são revisitados por dentro, com a cor deles como fundo e o lado de fora (cantos arredondados) excluído por preenchimento a partir da borda. Fundo de foto ou textura vira uma imagem sangrada, e o que está sobre ela é achado por contraste local em duas passadas (a segunda contra a média do fundo sem a figura, para não criar halo), mais áreas chapadas, nítidas e quase retangulares (selos, botões, faixas). Palavras de uma linha e linhas de um parágrafo são unidas.
+- **Medidas** (`analyzeLayout`, iguais para DOM e pixels): margens e área útil sem os elementos sangrados; eixos de alinhamento por agrupamento 1-D das bordas; vão até o vizinho de baixo e ao lado; ritmo (valores distintos e se são múltiplos de uma unidade); grid de 1 a 12 colunas, aceito só quando explica claramente mais bordas que uma coluna; peso = área × contraste (texto pesa mais, painel menos); centro de peso, quadrantes, simetria; foco contra terços, áurea e centro óptico; respiro em grade 48×48 com o maior retângulo vazio; caminho de leitura.
+- **Imagem anotada** (`evidence/<fonte>/anatomy-<n>.jpg`): blocos numerados por cor de tipo, área útil e margens, bordas compartilhadas, vãos em px, terços.
+- **Leitura** (inferida): o modelo da conversa recebe a peça, a anotação e as medidas e devolve papel e porquê de cada bloco, composição, princípios, intenção, fragilidades, correções e regras. As regras viram a extração `dissect` da fonte e se cruzam com as demais.
+- **Invariantes:** por grupo (imagens e planos; seções de site), a mediana e o desvio absoluto mediano de margens, tamanho do título relativo à tela, contraste tipográfico, respiro, área de imagem, posição do foco, unidade de ritmo; e a categoria dominante de proporção, simetria, leitura, grid e fundo. Constante quando o desvio é pequeno (≤ 2 pontos percentuais, ou ≤ 20% do valor) ou a categoria cobre ≥ 70% das peças.
+- **Conceito** (`concept.json`): leitura do projeto inteiro sobre a folha de contato, as leituras e as invariantes.
+- **Planta** (`blueprints/`): ranqueia as peças por proporção, grupo, tipo e palavras do pedido; adapta a melhor ao novo formato (margens e tipo pelo lado menor; linhas acima da imagem principal empilhadas a partir da margem de cima, as de baixo a partir da margem de baixo, com os vãos escalados; a imagem principal absorve a diferença; filhos acompanham o pai; área segura do story) e junta conceito, constantes, porquês, regras e wireframe.
 
 ## Reconciliação
 

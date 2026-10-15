@@ -8,6 +8,7 @@ import { promisify } from "node:util";
 import { Project } from "./core/project.js";
 import { exportGenome, type ExportFormat } from "./export/index.js";
 import { VISION_PROMPT } from "./extractors/vision.js";
+import { CONCEPT_PROMPT, DISSECT_PROMPT, anatomyText, legendText } from "./anatomy/reading.js";
 import type { Facet, QueryOptions } from "./query.js";
 import { GenomeService } from "./service.js";
 
@@ -67,6 +68,8 @@ export const TOOLS: Record<string, (args: Args, ctx: ToolContext) => Promise<Too
       .filter((s) => s.kind === "collection")
       .map((s) => ({ collection: project.source(s.id).label ?? s.uri, items: project.sources.filter((c) => c.parent === s.id).length }));
     const failed = outcomes.filter((o) => o.status === "failed");
+    const anatomy = (await svc.genome()).anatomy;
+    const unread = anatomy?.pieces.filter((p) => !p.reading).length ?? 0;
     const pending = (await svc.visionPending()).length;
     return text({
       project: project.name,
@@ -74,7 +77,8 @@ export const TOOLS: Record<string, (args: Args, ctx: ToolContext) => Promise<Too
       ...(collected.length ? { collected } : {}),
       extracted: outcomes.filter((o) => o.status === "extracted").length,
       ...(failed.length ? { failed } : {}),
-      ...(pending ? { next: `${pending} source(s) have images without a vision reading: call genome_vision_request.` } : {}),
+      ...(anatomy?.pieces.length ? { anatomy: { pieces: anatomy.pieces.length, unread } } : {}),
+      ...(unread ? { next: `${unread} piece(s) are measured but not dissected: call genome_dissect_request and read them one by one, then genome_concept_request.` } : pending ? { next: `${pending} source(s) have images without a vision reading: call genome_vision_request.` } : {}),
       genome: { colors: genome.color.tokens.length, typeStyles: genome.typography.styles.length, rules: genome.rules.length, openConflicts: genome.conflicts.filter((c) => !c.resolution).length },
     });
   },
@@ -97,6 +101,7 @@ export const TOOLS: Record<string, (args: Args, ctx: ToolContext) => Promise<Too
     const svc = svcFor(ctx, args);
     const ids = (args.sourceIds as string[] | undefined)?.length ? (args.sourceIds as string[]) : "all";
     const outcomes = await svc.extract(ids, { force: Boolean(args.force), vision: Boolean(args.vision) });
+    await svc.measure(ids, Boolean(args.force));
     const g = await svc.build();
     return text({ outcomes: outcomes.filter((o) => o.status !== "cached"), rules: g.rules.length, openConflicts: g.conflicts.filter((c) => !c.resolution).length });
   },
@@ -134,6 +139,102 @@ export const TOOLS: Record<string, (args: Args, ctx: ToolContext) => Promise<Too
     const pending = await svc.visionPending();
     const confirmed = genome.rules.filter((r) => r.origin === "inferred" && r.support.status === "confirmed").length;
     return text({ stored: observations, inferredRulesConfirmedAcrossSources: confirmed, remainingSources: pending.length, next: pending[0] ? { id: pending[0].id, label: pending[0].label ?? pending[0].uri } : null });
+  },
+
+  async genome_dissect_request(args, ctx) {
+    const svc = svcFor(ctx, args);
+    const req = await svc.dissectRequest(args.pieceId as string | undefined, (args.maxWidth as number | undefined) ?? 1280);
+    if (!req) return text("Every piece already has a reading. Pass a pieceId to read one again, or call genome_concept_request to read the project as a whole.");
+    const { piece } = req.images;
+    const header = [
+      `Dissect piece ${piece.id} (${req.total - req.remaining} of ${req.total}; ${req.remaining} more after this one).`,
+      "",
+      DISSECT_PROMPT,
+      "",
+      legendText,
+      "",
+      "Measurements:",
+      anatomyText(piece),
+      "",
+      `Submit with genome_dissect_submit { pieceId: "${piece.id}", pieceType, summary, elements, composition, whyItWorks, intent, typography, color, imagery, fragile, corrections, rules }.`,
+    ].join("\n");
+    return {
+      content: [
+        { type: "text", text: header },
+        { type: "text", text: "Image 1 — the piece" },
+        { type: "image", data: req.images.original.toString("base64"), mimeType: "image/jpeg" },
+        { type: "text", text: "Image 2 — measured anatomy" },
+        { type: "image", data: req.images.overlay.toString("base64"), mimeType: "image/jpeg" },
+      ],
+    };
+  },
+
+  async genome_dissect_submit(args, ctx) {
+    const svc = svcFor(ctx, args);
+    const { pieceId, project: _p, ...reading } = args;
+    const { piece, rules, remaining, genome } = await svc.dissectSubmit(pieceId as string, reading as never, `${ctx.client} (host model)`);
+    const confirmed = genome.rules.filter((r) => r.origin === "inferred" && r.support.status === "confirmed").length;
+    const next = genome.anatomy?.pieces.find((p) => !p.reading);
+    return text({ stored: piece.id, elements: piece.reading?.elements.length ?? 0, rules, inferredRulesConfirmedAcrossSources: confirmed, remainingPieces: remaining, next: next ? { pieceId: next.id, label: next.label } : "All pieces read: call genome_concept_request to read the project as a whole." });
+  },
+
+  async genome_concept_request(args, ctx) {
+    const svc = svcFor(ctx, args);
+    const { anatomy, sheet, genome } = await svc.conceptRequest();
+    const lines: string[] = [CONCEPT_PROMPT, "", `Pieces (${anatomy.pieces.length}; numbers match the contact sheet):`];
+    anatomy.pieces.slice(0, 24).forEach((p, i) => {
+      const r = p.reading;
+      lines.push(`${i + 1}. ${p.id} — ${p.label} · ${p.anatomy.canvas.w}×${p.anatomy.canvas.h} (${p.anatomy.canvas.aspectName})`);
+      if (r) {
+        lines.push(`   ${r.pieceType}: ${r.summary}`, `   structure: ${r.composition.structure}; eye path: ${r.composition.eyePath}`);
+        if (r.whyItWorks.length) lines.push(`   works because: ${r.whyItWorks.slice(0, 3).join(" / ")}`);
+        lines.push(`   intent: ${r.intent.message}${r.intent.emotion ? ` (${r.intent.emotion})` : ""}`);
+      } else lines.push(`   not read yet; measured: ${p.anatomy.summary.slice(1, 4).join(" ")}`);
+    });
+    if (anatomy.pieces.length > 24) lines.push(`… and ${anatomy.pieces.length - 24} more.`);
+    const unread = anatomy.pieces.filter((p) => !p.reading).length;
+    if (unread) lines.push("", `Note: ${unread} piece(s) are not dissected yet; the concept will be stronger after genome_dissect_request on them.`);
+    for (const [group, inv] of Object.entries(anatomy.invariants)) {
+      lines.push("", `Measured invariants (${group === "web" ? "page sections" : "images and shots"}):`);
+      for (const i of inv) lines.push(`- ${i.constant ? "CONSTANT" : "varies"} · ${i.description}: ${i.median}${i.spread ? ` ±${i.spread}` : ""} ${i.unit} over ${i.pieces} pieces`);
+    }
+    if (genome) {
+      lines.push("", "Genome highlights:", `- Palette: ${genome.color.tokens.slice(0, 8).map((t) => `${t.name} ${t.hex} ${Math.round(t.share * 100)}%`).join(", ")}`, `- Type: ${genome.typography.families.map((f) => f.family).join(", ") || "unknown"}`);
+      for (const r of [...genome.rules].sort((a, b) => b.support.confidence - a.support.confidence).slice(0, 10)) lines.push(`- [${r.support.status}] ${r.statement}`);
+    }
+    lines.push("", "Submit with genome_concept_submit { bigIdea, concept, why, audience, personality, narrative, metaphors, constants, variables, grammar, signatureMoves, adaptation, avoid }.");
+    return { content: [{ type: "text", text: lines.join("\n") }, { type: "text", text: "Contact sheet" }, { type: "image", data: sheet.toString("base64"), mimeType: "image/jpeg" }] };
+  },
+
+  async genome_concept_submit(args, ctx) {
+    const svc = svcFor(ctx, args);
+    const { project: _p, ...input } = args;
+    const { concept } = await svc.conceptSubmit(input as never, `${ctx.client} (host model)`);
+    return text({ stored: true, bigIdea: concept.bigIdea, constants: concept.constants.length, variables: concept.variables.length, grammarSteps: concept.grammar.length, next: "Use genome_blueprint to plan a new piece, or genome_brief to see the concept in the brief." });
+  },
+
+  async genome_blueprint(args, ctx) {
+    const svc = svcFor(ctx, args);
+    const bp = await svc.blueprint({
+      request: String(args.request ?? ""),
+      ...(args.format ? { format: args.format as string } : {}),
+      ...(args.width ? { width: args.width as number } : {}),
+      ...(args.height ? { height: args.height as number } : {}),
+      ...(args.pieceType ? { pieceType: args.pieceType as string } : {}),
+      ...(args.references ? { references: args.references as string[] } : {}),
+    });
+    const project = await svc.project();
+    const content: Content[] = [{ type: "text", text: bp.markdown }];
+    const sharp = (await import("sharp")).default;
+    if (bp.wireframe) {
+      content.push({ type: "text", text: `Wireframe of the adapted layout (${bp.canvas.w}×${bp.canvas.h}px), saved at ${bp.wireframe}` });
+      content.push({ type: "image", data: (await sharp(join(project.root, bp.wireframe)).jpeg({ quality: 80 }).toBuffer()).toString("base64"), mimeType: "image/jpeg" });
+    }
+    for (const ref of bp.references.slice(0, 2)) {
+      content.push({ type: "text", text: `Reference ${ref.id} with its anatomy` });
+      content.push({ type: "image", data: (await sharp(join(project.root, ref.overlay)).resize({ width: 900, height: 900, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 76 }).toBuffer()).toString("base64"), mimeType: "image/jpeg" });
+    }
+    return { content };
   },
 
   async genome_projects(args, ctx) {

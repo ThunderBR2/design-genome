@@ -10,6 +10,10 @@ import { queryGenome, type Facet, type QueryOptions } from "./query.js";
 import { buildGenome } from "./reconcile/build.js";
 import { verify, type VerifyReport } from "./verify/index.js";
 import { visionExtraction, visionImages, type VisionImage, type VisionReply } from "./extractors/vision.js";
+import { buildBlueprint, type Blueprint, type BlueprintInput } from "./anatomy/blueprint.js";
+import { ANATOMY_KINDS, ensureAnatomy, loadAnatomy, measureSource } from "./anatomy/pieces.js";
+import { contactSheet, pieceImages, projectAnatomy, saveConcept, submitReading, type ConceptInput, type PieceImages, type ProjectAnatomy, type ReadingInput } from "./anatomy/reading.js";
+import type { Concept, Piece } from "./anatomy/types.js";
 
 const MEDIA = /\.(png|jpe?g|webp|gif|avif|tiff?|bmp|svg|mp4|mov|m4v|webm|mkv|avi|pdf|md|markdown|txt)$/i;
 
@@ -81,6 +85,7 @@ export class GenomeService {
   async ingest(inputs: readonly AddSourceInput[], options: { vision?: boolean } = {}): Promise<{ sources: Source[]; outcomes: ExtractOutcome[]; genome: Genome }> {
     const sources = await this.add(inputs);
     const outcomes = await this.extract(sources.map((s) => s.id), options);
+    await this.measure(outcomes.filter((o) => o.status === "extracted").map((o) => o.sourceId));
     const genome = await this.build();
     return { sources, outcomes, genome };
   }
@@ -93,6 +98,8 @@ export class GenomeService {
       if (!["image", "video", "web"].includes(s.kind)) continue; // collections are read through their children
       if (!(await project.hasExtraction(s.id, PRIMARY[s.kind].name))) continue;
       if (await project.hasExtraction(s.id, "vision")) continue;
+      // A dissected source has been looked at piece by piece, which covers the vision pass.
+      if (await project.hasExtraction(s.id, "dissect")) continue;
       out.push(s);
     }
     return out;
@@ -116,6 +123,70 @@ export class GenomeService {
     const extraction = visionExtraction(source, images, reply, reader);
     await project.saveExtraction(extraction);
     return { observations: extraction.observations.length, genome: await this.build() };
+  }
+
+  /** Measure the anatomy of sources (all extracted image, video and web sources by default). Failures stay per source. */
+  async measure(ids: readonly string[] | "all" = "all", force = false): Promise<{ sourceId: string; pieces?: number; error?: string }[]> {
+    const project = await this.project();
+    const wanted = ids === "all" ? project.sources.map((s) => s.id) : [...new Set(ids)];
+    const out: { sourceId: string; pieces?: number; error?: string }[] = [];
+    for (const id of wanted) {
+      const source = project.source(id);
+      if (!ANATOMY_KINDS.has(source.kind) || !(await project.hasExtraction(id, PRIMARY[source.kind].name))) continue;
+      try {
+        const had = !force && (await loadAnatomy(project, id));
+        const a = force ? await measureSource(project, source) : await ensureAnatomy(project, source);
+        out.push({ sourceId: id, pieces: a.pieces.length });
+        if (!had || had.measuredAt !== a.measuredAt) this.log(`anatomy: ${a.pieces.length} piece(s) from ${source.label ?? source.uri}`);
+      } catch (error) {
+        out.push({ sourceId: id, error: error instanceof Error ? error.message : String(error) });
+        this.log(`anatomy failed for ${source.uri}: ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+    return out;
+  }
+
+  async anatomy(): Promise<ProjectAnatomy> {
+    await this.measure("all");
+    return projectAnatomy(await this.project());
+  }
+
+  /** The next piece without a reading (or a given one), with its images and measurements. */
+  async dissectRequest(pieceId?: string, maxSide = 1280): Promise<{ images: PieceImages; remaining: number; total: number } | null> {
+    const pa = await this.anatomy();
+    const piece = pieceId ? pa.pieces.find((p) => p.id === pieceId) : pa.pieces.find((p) => !p.reading);
+    if (pieceId && !piece) throw new Error(`Unknown piece ${pieceId}. Known: ${pa.pieces.map((p) => p.id).join(", ") || "none"}`);
+    if (!piece) return null;
+    const remaining = pa.pieces.filter((p) => !p.reading && p.id !== piece.id).length;
+    return { images: await pieceImages(await this.project(), piece, maxSide), remaining, total: pa.pieces.length };
+  }
+
+  async dissectSubmit(pieceId: string, input: ReadingInput, reader: string): Promise<{ piece: Piece; rules: number; remaining: number; genome: Genome }> {
+    const project = await this.project();
+    const { piece, rules } = await submitReading(project, pieceId, input, reader);
+    const genome = await this.build();
+    const remaining = genome.anatomy?.pieces.filter((p) => !p.reading).length ?? 0;
+    return { piece, rules, remaining, genome };
+  }
+
+  async conceptRequest(): Promise<{ anatomy: ProjectAnatomy; sheet: Buffer; genome: Genome | null }> {
+    const project = await this.project();
+    const anatomy = await this.anatomy();
+    if (!anatomy.pieces.length) throw new Error("No pieces yet: add images, videos or sites and extract them first.");
+    return { anatomy, sheet: await contactSheet(project, anatomy.pieces), genome: await project.loadGenome() };
+  }
+
+  async conceptSubmit(input: ConceptInput, reader: string): Promise<{ concept: Concept; genome: Genome }> {
+    const project = await this.project();
+    const pa = await projectAnatomy(project);
+    const concept = await saveConcept(project, input, reader, pa.pieces.map((p) => p.id));
+    return { concept, genome: await this.build() };
+  }
+
+  async blueprint(input: BlueprintInput): Promise<Blueprint> {
+    const project = await this.project();
+    const anatomy = await this.anatomy();
+    return buildBlueprint(project, await project.loadGenome(), input, anatomy);
   }
 
   async genome(): Promise<Genome> {

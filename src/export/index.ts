@@ -1,4 +1,5 @@
 import { isNeutral } from "../core/color.js";
+import { briefAnatomy, toAnatomy } from "./anatomy.js";
 import type { Genome, Support, TypeStyleToken } from "../core/genome.js";
 
 /** Exports for tools (W3C tokens, CSS, Tailwind) and for agents (a compact brief). */
@@ -117,6 +118,14 @@ export const toImageDirection = (g: Genome): string => {
   if (visual.length) lines.push(...visual.slice(0, 8).map((r) => `- ${r.statement}`));
   if (g.motion.editing) lines.push(`Editing: ${g.motion.editing.description}`);
   if (g.motion.intensity) lines.push(`Motion: ${g.motion.intensity.description}`);
+  const concept = g.anatomy?.concept;
+  const visualInv = (g.anatomy?.invariants.visual ?? []).filter((i) => i.constant && ["margin-short-side", "whitespace", "focal-x", "focal-y", "image-share"].includes(i.feature));
+  if (visualInv.length) lines.push(`Composition: ${visualInv.map((i) => `${i.description} ${Math.round(i.median * 100)}%`).join("; ")}.`);
+  if (concept) {
+    lines.push(`Concept: ${concept.bigIdea} — ${concept.concept}`);
+    if (concept.signatureMoves.length) lines.push(`Signature moves: ${concept.signatureMoves.join("; ")}.`);
+    if (concept.avoid.length) lines.push(`Avoid: ${concept.avoid.join("; ")}.`);
+  }
   return lines.join("\n");
 };
 
@@ -127,6 +136,7 @@ export const toBrief = (g: Genome, options: ExportOptions = {}): string => {
   out.push(`# ${g.name} — design genome brief`, "");
   out.push(`Built ${g.builtAt.slice(0, 10)} from ${g.sources.length} source(s) (${kinds}). Every value below was measured or stated by a source; nothing is guessed.`);
   out.push(`Legend: ● confirmed by 2+ sources · ◐ one source · ○ stated by the brand, not seen in practice · ⚠ sources disagree. Percent = confidence.`, "");
+  out.push(...briefAnatomy(g));
 
   const ordered = [...g.rules].sort((a, b) => b.support.confidence - a.support.confidence);
   out.push("## Rules", "");
@@ -192,7 +202,7 @@ export const toBrief = (g: Genome, options: ExportOptions = {}): string => {
   return `${out.join("\n")}\n`;
 };
 
-export const EXPORT_FORMATS = ["tokens", "css", "tailwind", "brief", "image-direction"] as const;
+export const EXPORT_FORMATS = ["tokens", "css", "tailwind", "brief", "image-direction", "anatomy"] as const;
 export type ExportFormat = (typeof EXPORT_FORMATS)[number];
 
 export const exportGenome = (g: Genome, format: ExportFormat, options: ExportOptions = {}): { filename: string; content: string } => {
@@ -202,5 +212,6 @@ export const exportGenome = (g: Genome, format: ExportFormat, options: ExportOpt
     case "tailwind": return { filename: "tailwind.genome.js", content: toTailwind(g, options) };
     case "brief": return { filename: "BRIEF.md", content: toBrief(g, options) };
     case "image-direction": return { filename: "image-direction.md", content: `${toImageDirection(g)}\n` };
+    case "anatomy": return { filename: "ANATOMY.md", content: `${toAnatomy(g)}\n` };
   }
 };

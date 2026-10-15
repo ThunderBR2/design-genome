@@ -19,7 +19,7 @@ const program = new Command();
 program
   .name("genome")
   .description("Reverse-engineer design systems from sites, documents, images, videos and Figma files — with evidence for every fact.")
-  .version("0.2.0")
+  .version("0.3.0")
   .option("-p, --project <dir>", "project directory", DEFAULT_PROJECT_DIR)
   .option("-q, --quiet", "no progress output");
 
@@ -123,6 +123,38 @@ program
   .action(async (facet: Facet, o) => {
     if (!FACETS.includes(facet)) throw new Error(`Unknown facet ${facet}`);
     print(await service().query(facet, { detail: o.full ? "full" : "summary", role: o.role, viewport: o.viewport ? Number(o.viewport) : undefined, topic: o.topic, minConfidence: o.minConfidence ? Number(o.minConfidence) : undefined }), true);
+  });
+
+program
+  .command("anatomy")
+  .argument("[sourceIds...]", "sources to measure (default all)")
+  .option("-f, --force", "measure again even when already measured")
+  .option("--json", "full JSON")
+  .description("measure each piece (image, video shot, page section): blocks, margins, distances, alignment, grid, rhythm, hierarchy")
+  .action(async (ids: string[], o) => {
+    const svc = service();
+    await svc.measure(ids.length ? ids : "all", o.force);
+    const g = await svc.build();
+    if (o.json) return print(g.anatomy ?? null, true);
+    for (const p of g.anatomy?.pieces ?? []) {
+      print(`\n${p.id}  ${p.label}  [${p.precision}${p.reading ? `, read as ${p.reading.pieceType}` : ", not read"}]  overlay: ${p.overlay}`);
+      for (const m of p.measured) print(`  - ${m}`);
+    }
+  });
+
+program
+  .command("blueprint")
+  .argument("<request>", "what to create")
+  .option("--format <name>", "instagram-post, story, a4-portrait, web-desktop…")
+  .option("--size <WxH>", "canvas size in px, e.g. 1080x1350")
+  .option("--type <pieceType>", "piece type, e.g. poster")
+  .option("--from <pieceIds...>", "base it on these pieces")
+  .description("plan a new piece from the dissected references (writes a wireframe to <project>/blueprints)")
+  .action(async (request: string, o) => {
+    const [w, h] = o.size ? String(o.size).toLowerCase().split("x").map(Number) : [];
+    const bp = await service().blueprint({ request, ...(o.format ? { format: o.format } : {}), ...(w && h ? { width: w, height: h } : {}), ...(o.type ? { pieceType: o.type } : {}), ...(o.from ? { references: o.from } : {}) });
+    print(bp.markdown);
+    if (bp.wireframe) print(`\nWireframe: ${bp.wireframe}`);
   });
 
 program.command("conflicts").description("list conflicts").action(async () => {

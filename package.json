@@ -1,6 +1,6 @@
 {
   "name": "design-genome",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Reverse engineering for design: ingest sites, documents, images, videos and Figma files, cross-check every fact with evidence, and give AI agents a verified design genome.",
   "main": "dist/index.js",
   "scripts": {

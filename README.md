@@ -42,6 +42,43 @@ Cole o link e pronto: o Design Genome baixa tudo sozinho.
 
 Os textos de um case do Behance entram como leitura inferida, não como regra da marca: quem escreveu foi o autor do projeto.
 
+## Anatomia: cada peça aberta na maca
+
+Além dos tokens, o Design Genome disseca **cada peça**: cada imagem, cada plano de vídeo (até 6 por filme) e cada seção de um site (no maior e no menor viewport). A dissecação tem duas metades.
+
+**1. Medida (técnica).** O sistema encontra os elementos e mede tudo:
+
+| O que mede | Exemplo do que sai |
+|---|---|
+| Elementos | blocos numerados: texto, imagem, botão/selo, painel, forma, fio, com caixa em px e em % da tela |
+| Margens e área útil | "esquerda 96px (8,9%), direita 96px, topo 124px (9,2%)… margens laterais iguais" |
+| Distâncias | o espaço entre cada vizinho, em px e em % ("título → subtítulo 59px, subtítulo → foto 72px") |
+| Ritmo | se os espaços são múltiplos de uma unidade ("múltiplos de 8px: 8, 16, 24, 32, 64") |
+| Alinhamento | as bordas que vários elementos compartilham ("borda esquerda a 8,8%: #1, #2, #3, #4") |
+| Grid | colunas, gutter e margem que explicam as bordas, com a porcentagem de aderência |
+| Hierarquia | ordem de peso visual e a escada de tamanhos de texto ("o maior é 3,5× o menor") |
+| Equilíbrio e proporção | centro de peso, quadrantes, simetria, onde o foco cai em relação aos terços, à proporção áurea e ao centro óptico |
+| Respiro | quanto da tela é vazio e onde está a maior área livre |
+| Caminho de leitura | por onde o olho entra e para onde vai (coluna à esquerda, Z, eixo central, diagonal) |
+
+Em sites as caixas vêm do navegador (**exatas**, com fonte, peso e tamanho reais de cada texto). Em imagens e quadros vêm dos pixels (**estimadas**): fundo chapado, painéis com o que está dentro deles, e texto, selos e botões sobre foto encontrados por contraste local. Cada peça ganha uma imagem anotada com tudo numerado.
+
+**2. Lida (o porquê).** Com a peça e a imagem anotada na mão, o Claude da conversa explica cada bloco: o papel, o que mostra, o tratamento e **por que está ali, naquele tamanho e naquela distância**; a estrutura da composição e os princípios usados; por que a peça funciona; a intenção (mensagem, público, emoção, ação); o que quebraria a peça; e regras reaproveitáveis, que entram no genoma e são cruzadas com as outras fontes.
+
+Depois vem a **leitura do projeto inteiro**: uma folha de contato com todas as peças, as leituras e as **constantes medidas** (o que nunca muda entre as peças: margem, tamanho do título em relação à tela, respiro, posição do foco…). O Claude devolve a grande ideia, o conceito, por que o projeto é desse jeito, o que é constante e o que varia, a gramática de montagem, os movimentos de assinatura, como adaptar para outros formatos e o que evitar. Isso abre o brief.
+
+### Criar a partir da anatomia
+
+`genome_blueprint` recebe o pedido e o formato (`instagram-post`, `story`, `a4-portrait`, `web-desktop`… ou largura e altura) e devolve a planta da peça nova:
+
+- as referências mais parecidas e por quê;
+- o layout da melhor referência **redesenhado no novo formato**, em px: margens e tipo escalam com o lado menor, as pilhas de cima e de baixo mantêm seus espaços, a imagem principal absorve a mudança de proporção, e a área segura do story é respeitada;
+- o porquê de cada elemento, as bordas que precisam continuar alinhadas e o que é frágil;
+- o conceito, as constantes medidas, paleta, tipografia e regras;
+- um wireframe e as referências anotadas.
+
+Basta pedir: "disseque todas as peças, leia o conceito do projeto e me faça a planta de um story de lançamento".
+
 ## Como o cruzamento funciona
 
 ```mermaid
@@ -94,6 +131,8 @@ genome ingest ./prints/iphone-1440@2x.png --depicts src_xxxx
 genome ingest ./campanha.mp4 ./brand-guidelines.pdf
 genome ingest https://www.figma.com/design/ABC123/Kit      # precisa de FIGMA_TOKEN
 genome conflicts
+genome anatomy                                             # mede cada peça (blocos, margens, distâncias, grid…)
+genome blueprint "story de lançamento" --format story      # planta de uma peça nova
 genome export
 ```
 
@@ -182,6 +221,11 @@ Basta pedir: "rode a passada de visão em todas as fontes". O caminho com `ANTHR
 |---|---|
 | `genome_vision_request` | Imagens da próxima fonte sem leitura, para o Claude analisar |
 | `genome_vision_submit` | Guarda o que o Claude viu e reconstrói o genoma |
+| `genome_dissect_request` | A próxima peça sem leitura: a peça, a peça anotada com a anatomia medida e os números |
+| `genome_dissect_submit` | Guarda a dissecação de uma peça (papel e porquê de cada elemento, composição, intenção, regras) |
+| `genome_concept_request` | Folha de contato de todas as peças, leituras e constantes medidas, para ler o projeto inteiro |
+| `genome_concept_submit` | Guarda o conceito do projeto (ideia, porquê, constantes, variáveis, gramática, adaptação) |
+| `genome_blueprint` | Planta de uma peça nova num formato: layout adaptado em px, porquê de cada elemento, wireframe |
 
 Junto vem uma skill para agentes em [`skills/design-genome/SKILL.md`](skills/design-genome/SKILL.md), que ensina a ler o genoma, quanto confiar em cada status e a fechar o ciclo com `genome_verify`.
 
@@ -218,6 +262,7 @@ A página original da marca tira 100%. Para imagens geradas por IA, a verificaç
 | `genome.css` | Variáveis CSS e classes de estilo de texto |
 | `tailwind.genome.js` | Preset do Tailwind |
 | `image-direction.md` | Fragmento de prompt para modelos de imagem e vídeo, montado só com fatos medidos |
+| `ANATOMY.md` | A dissecação completa: cada peça medida e lida, as constantes e o conceito do projeto |
 
 Fontes restritas (SF Pro, Helvetica Neue, Circular etc.) são trocadas por substitutas abertas nas exportações, a não ser que você use `--original-fonts`.
 
@@ -232,6 +277,7 @@ Analise apenas o que você tem direito de acessar e respeite os termos de uso do
 As dependências apontam para dentro, como no REA:
 
 ```
+src/anatomy/      peças: blocos nos pixels e no DOM, medidas de layout, imagem anotada, leituras, conceito e planta
 src/core/         modelo de evidência, cor (OKLCH, CIEDE2000), matemática, projeto em disco
 src/extractors/   web, figma, document, image, video, vision
 src/reconcile/    paleta, tipografia, métricas, regras, conflitos, calibração
@@ -261,6 +307,7 @@ O teste de ponta a ponta roda o pipeline real com quatro fontes de uma marca fic
 - Folhas de estilo de outros domínios não expõem media queries e variáveis ao navegador; os estilos computados continuam medidos. Isso aparece como limitação da fonte.
 - Tipografia e componentes dentro de imagens e vídeos só são nomeados pela passada de visão (pelo Claude via MCP, ou `--vision` com chave de API).
 - Movimentos de câmera, áudio e trilha ainda não são analisados.
+- Na anatomia por pixels, o tamanho de texto é a altura da tinta da linha (em caixa alta, a altura das maiúsculas), não o corpo da fonte; elementos dentro de uma foto (o produto, a pessoa) não são separados, quem nomeia é a leitura do Claude.
 - Variáveis e protótipos do Figma não vêm pela API de arquivos.
 - O modo escuro só é aprendido se você adicionar o site com `--dark`.
 
