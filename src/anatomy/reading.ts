@@ -8,7 +8,7 @@ import type { Evidence, Extraction, ObservationValue, Source } from "../core/mod
 import { ObservationCollector, finishExtraction } from "../extractors/support.js";
 import { KIND_COLORS } from "./overlay.js";
 import { loadAllAnatomy, loadAnatomy, saveAnatomy } from "./pieces.js";
-import type { Anatomy, Concept, Invariant, Piece, PieceReading } from "./types.js";
+import { isReadable, type Anatomy, type Concept, type Invariant, type Piece, type PieceReading } from "./types.js";
 
 /**
  * The reading half of the anatomy. The host model looks at a piece with its
@@ -20,16 +20,23 @@ import type { Anatomy, Concept, Invariant, Piece, PieceReading } from "./types.j
 
 export const DISSECT_PROMPT = `You are dissecting one design piece on the table, as a senior art director and design teacher would, so another designer could build new pieces in the same language without copying this one.
 
-You get two images: (1) the piece; (2) the same piece with its measured anatomy drawn on it — numbered blocks (pink text, blue image, orange control, green panel, purple shape, grey line), the live area as a cyan dashed frame with the margins in px, shared alignment edges as magenta dashed lines, gaps between neighbours in yellow (px), and the thirds as faint white lines. The measurements below are facts (exact for web sections, estimated from pixels otherwise). Use their numbers; do not re-estimate positions or sizes. For estimated text, "≈Npx" is the ink height of one line (the cap height when the line is all caps), not the font size; say the likely font size in the treatment when it matters.
+You get three images: (1) the piece; (2) the same piece with its measured anatomy drawn on it — numbered blocks (pink text, blue image, orange control, green panel, purple shape, grey line), the live area as a cyan dashed frame with the margins in px, shared alignment edges as magenta dashed lines, gaps between neighbours in yellow (px), and the thirds as faint white lines; (3) the grid reading alone — column bands (c1, c2…), row bands (r1…) when the grid is modular, the baseline as faint red lines, proportional lines (thirds or golden) in purple, and each block with the columns it spans or "off-grid". The measurements below are facts (exact for web sections, estimated from pixels otherwise). Use their numbers; do not re-estimate positions or sizes. For estimated text, "≈Npx" is the ink height of one line (the cap height when the line is all caps), not the font size; say the likely font size in the treatment when it matters.
 
-Your job is what measurement cannot do. Return:
-- elements: every block by its number — role (headline, subhead, body, label, logo, product, person, photo, illustration, cta, price, badge, icon, nav, card, texture, ornament, divider…), what it says or shows, its treatment (type style, weight, case, color, crop, effects) and WHY it is there: why that position, that size and that distance, citing the measured margins, axes and gaps. Report wrong merges or splits in corrections; add an element the measurement missed with a share-of-canvas box (0..1).
+STEP 1 — before anything else, identify the piece and check it is worth reading.
+- Say what it is (whatItIs): the kind of material, where it comes from (hero, card grid, footer, poster, film frame…) and what it shows.
+- Check image 1 against the measurements: is every numbered block actually visible in the picture, where the overlay puts it? Read the pre-check below.
+- If the picture does not show what was measured (content hidden, covered by a layer, a loader, a cookie banner, a bot check), or the piece adds nothing to the design language (blank, a duplicate of another piece, a background strip or a video frame with nothing composed on it), do NOT dissect it: call genome_dissect_skip { pieceId, reason } and move on. A skipped piece costs nothing; a reading of something that is not there poisons the genome.
+- If only some blocks are not visible, dissect the rest and name the missing ones in corrections. Never describe a block you cannot see.
+
+STEP 2 — the reading. Your job is what measurement cannot do. Return:
+- elements: every visible block by its number — role (headline, subhead, body, label, logo, product, person, photo, illustration, cta, price, badge, icon, nav, card, texture, ornament, divider…), what it says or shows (read it from the picture, not from memory), its treatment (type style, weight, case, color, crop, effects) and WHY it is there: why that position, that size and that distance, citing the measured margins, axes, gaps and grid spans. Report wrong merges or splits in corrections; add an element the measurement missed with a share-of-canvas box (0..1).
+- grid: look at image 3 and say which system the piece is built on — web/UI column grid (how many columns, gutter, container), editorial grid (modular columns × rows, manuscript, baseline), proportional (thirds, golden) or a free composition — whether you agree with the measurement, and why the piece uses it. When the measured grid is wrong, say what you see instead.
 - composition: the structure (e.g. "asymmetric two-column grid with a full-width image band"), the eye path, the balance, and the principles at work (scale contrast, alignment, proximity, repetition, figure-ground, tension, rhythm, framing, color contrast…) — each with how it is done here (block numbers, numbers) and why it works.
 - whyItWorks: the reasons the piece succeeds, most important first.
 - intent: the message, the audience, the emotion and the action it asks for.
 - typography, color, imagery: the treatment of each and the reason for it.
 - fragile: what would break the piece if changed (e.g. "shrinking the 9% margin crowds the headline against the edge").
-- rules: reusable rules for new pieces in this language, measured where possible (e.g. "Headline flush-left on the same 8.8% margin as the image, set at ~7% of the canvas height"), with polarity and confidence.
+- rules: reusable rules for new pieces in this language, measured where possible (e.g. "Headline flush-left on the same 8.8% margin as the image, set at ~7% of the canvas height"; "Content on a 12-column grid, 24px gutter; text blocks span 5 columns"), with polarity and confidence.
 Describe what is visible. When a reason is your interpretation, it is still welcome: it is stored as inferred and confirmed only if other pieces agree. Write every text field in the language the user is using with you.`;
 
 export const CONCEPT_PROMPT = `You have dissected the pieces of one project. Now read the project as a whole, the way its creative director would explain it.
@@ -54,8 +61,10 @@ const pct = (n: number): string => `${Math.round(n * 1000) / 10}%`;
 /** The anatomy of a piece as compact text for the host model. */
 export const anatomyText = (piece: Piece): string => {
   const a = piece.anatomy;
+  const t = piece.triage;
   const lines = [
     `Piece ${piece.id} — ${piece.label} (${piece.kind}, measurements ${piece.precision}).`,
+    ...(t ? [`Pre-check: ${t.status.toUpperCase()} — ${t.what}.`, ...t.checks.map((c) => `  ${c.ok ? "✓" : "✗"} ${c.name}: ${c.detail}`)] : []),
     ...a.summary.map((s) => `- ${s}`),
     "Blocks (number, kind, x,y, w×h px, as share of canvas, details):",
     ...a.blocks.map((b) => {
@@ -75,6 +84,7 @@ export interface PieceImages {
   readonly piece: Piece;
   readonly original: Buffer;
   readonly overlay: Buffer;
+  readonly grid?: Buffer;
 }
 
 const jpeg = async (path: string, maxSide: number): Promise<Buffer> =>
@@ -84,6 +94,7 @@ export const pieceImages = async (project: Project, piece: Piece, maxSide = 1280
   piece,
   original: await jpeg(join(project.root, piece.artifact), maxSide),
   overlay: await jpeg(join(project.root, piece.overlay), maxSide),
+  ...(piece.gridOverlay ? { grid: await jpeg(join(project.root, piece.gridOverlay), maxSide) } : {}),
 });
 
 export const legendText = `Overlay colors: ${Object.entries(KIND_COLORS).map(([k, c]) => `${k} ${c}`).join(", ")}.`;
@@ -98,6 +109,7 @@ export type ReadingInput = Partial<Omit<PieceReading, "reader" | "readAt">> & { 
 export const toReading = (input: ReadingInput, reader: string): PieceReading & { rules: ReadingRule[] } => ({
   reader,
   readAt: new Date().toISOString(),
+  ...(clean(input.whatItIs) ? { whatItIs: clean(input.whatItIs) } : {}),
   pieceType: clean(input.pieceType) || "piece",
   summary: clean(input.summary),
   elements: (input.elements ?? []).filter((e) => e && clean(e.role)).map((e) => ({
@@ -121,6 +133,7 @@ export const toReading = (input: ReadingInput, reader: string): PieceReading & {
   ...(clean(input.imagery) ? { imagery: clean(input.imagery) } : {}),
   fragile: list(input.fragile),
   corrections: list(input.corrections),
+  ...(input.grid && clean(input.grid.system) ? { grid: { system: clean(input.grid.system), agrees: input.grid.agrees !== false, ...(clean(input.grid.why) ? { why: clean(input.grid.why) } : {}) } } : {}),
   rules: (input.rules ?? []).filter((r) => clean(r.statement)),
 });
 
@@ -151,11 +164,31 @@ export const submitReading = async (project: Project, pieceId: string, input: Re
   if (!anatomy) throw new Error(`No anatomy for ${sourceId}. Call genome_dissect_request first.`);
   const piece = anatomy.pieces.find((p) => p.id === pieceId);
   if (!piece) throw new Error(`Unknown piece ${pieceId}. Pieces of this source: ${anatomy.pieces.map((p) => p.id).join(", ")}`);
+  if (!clean(input.whatItIs)) throw new Error("Say what the piece is first (whatItIs): the kind of material and what it shows, after checking the picture against the measured blocks. If it is not worth reading, call genome_dissect_skip instead.");
+  const known = new Set(piece.anatomy.blocks.map((b) => b.n));
+  const unknown = (input.elements ?? []).filter((e) => typeof e?.block === "number" && !known.has(e.block)).map((e) => e.block);
+  if (unknown.length) throw new Error(`Blocks ${[...new Set(unknown)].map((n) => `#${n}`).join(", ")} do not exist in ${pieceId} (it has #1–#${piece.anatomy.blocks.length}). Use the numbers on the overlay, or give a share-of-canvas box for an element the measurement missed.`);
   const reading = toReading(input, reader);
-  const pieces = anatomy.pieces.map((p) => (p.id === pieceId ? { ...p, reading } : p));
+  const pieces = anatomy.pieces.map((p) => (p.id === pieceId ? (({ skipped: _s, ...rest }) => ({ ...rest, reading }))(p) : p));
   await saveAnatomy(project, { ...anatomy, pieces });
   await project.saveExtraction(dissectExtraction(source, pieces as never));
   return { piece: { ...piece, reading }, rules: reading.rules.length };
+};
+
+/** Set a piece aside: it is not read, compared or reused. Any earlier reading of it is dropped. */
+export const skipPiece = async (project: Project, pieceId: string, reason: string, by: string): Promise<Piece> => {
+  const sourceId = pieceId.split("#")[0]!;
+  const source = project.source(sourceId);
+  const anatomy = await loadAnatomy(project, sourceId);
+  if (!anatomy) throw new Error(`No anatomy for ${sourceId}.`);
+  const piece = anatomy.pieces.find((p) => p.id === pieceId);
+  if (!piece) throw new Error(`Unknown piece ${pieceId}. Pieces of this source: ${anatomy.pieces.map((p) => p.id).join(", ")}`);
+  if (!clean(reason)) throw new Error("Give the reason the piece is not worth reading.");
+  const skipped = { reason: clean(reason), by, at: new Date().toISOString() };
+  const pieces = anatomy.pieces.map((p) => (p.id === pieceId ? (({ reading: _r, ...rest }) => ({ ...rest, skipped }))(p) : p));
+  await saveAnatomy(project, { ...anatomy, pieces });
+  await project.saveExtraction(dissectExtraction(source, pieces as never));
+  return pieces.find((p) => p.id === pieceId)!;
 };
 
 // ---- Across pieces --------------------------------------------------------
@@ -180,12 +213,14 @@ const FEATURES: readonly Feature[] = [
   { feature: "focal-x", description: "focal block center, share of width", unit: "share", absolute: true, get: (a) => { const b = a.blocks.find((x) => x.n === a.proportion.focal); return b ? (b.box.x + b.box.w / 2) / a.canvas.w : null; } },
   { feature: "focal-y", description: "focal block center, share of height", unit: "share", absolute: true, get: (a) => { const b = a.blocks.find((x) => x.n === a.proportion.focal); return b ? (b.box.y + b.box.h / 2) / a.canvas.h : null; } },
   { feature: "rhythm-unit", description: "spacing unit, share of height", unit: "share", absolute: true, get: (a) => (a.rhythm.unitPx ? a.rhythm.unitPx / a.canvas.h : null) },
+  { feature: "grid-gutter", description: "column gutter, share of width", unit: "share", absolute: true, get: (a) => (a.grids?.columns && a.grids.columns.columns > 1 ? a.grids.columns.gutterPx / a.canvas.w : null) },
+  { feature: "baseline", description: "baseline grid unit", unit: "px", get: (a) => a.grids?.baseline?.unitPx ?? null },
 ];
 const CATEGORIES: readonly { feature: string; description: string; get: (a: Anatomy) => string | null }[] = [
   { feature: "aspect", description: "canvas aspect", get: (a) => a.canvas.aspectName },
   { feature: "symmetry", description: "balance type", get: (a) => a.balance.symmetry },
   { feature: "reading-pattern", description: "reading path", get: (a) => a.readingPath.pattern },
-  { feature: "grid", description: "column grid", get: (a) => (a.grid ? `${a.grid.columns} column(s)` : "no grid") },
+  { feature: "grid", description: "grid system", get: (a) => (a.grids ? (a.grids.kind === "modular" ? `modular ${a.grids.columns!.columns}×${a.grids.rows!.count}` : a.grids.kind === "column" ? `${a.grids.columns!.columns}-column` : a.grids.kind) : a.grid ? `${a.grid.columns} column(s)` : "no grid") },
   { feature: "background", description: "background", get: (a) => (a.background.uniform ? "flat color" : "image or texture") },
 ];
 
@@ -258,7 +293,7 @@ export const projectAnatomy = async (project: Project): Promise<ProjectAnatomy> 
   const pieces = all.sort((a, b) => (order.get(a.sourceId) ?? 0) - (order.get(b.sourceId) ?? 0)).flatMap((a) => a.pieces);
   const groups: Record<string, readonly Invariant[]> = {};
   for (const g of ["visual", "web"] as const) {
-    const inv = invariants(pieces.filter((p) => pieceGroup(p) === g));
+    const inv = invariants(pieces.filter((p) => pieceGroup(p) === g && isReadable(p)));
     if (inv.length) groups[g] = inv;
   }
   return { pieces, invariants: groups, concept: await loadConcept(project), limitations: [...new Set(all.flatMap((a) => a.limitations))] };

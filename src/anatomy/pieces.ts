@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import sharp from "sharp";
@@ -9,8 +9,9 @@ import type { Source } from "../core/model.js";
 import type { LayoutDump, LayoutElement } from "../extractors/web.js";
 import { backgroundOf, detectBlocks } from "./blocks.js";
 import { analyzeLayout, type LayoutInput } from "./layout.js";
-import { renderOverlay } from "./overlay.js";
-import type { Box, Piece, SourceAnatomy } from "./types.js";
+import { renderGridOverlay, renderOverlay } from "./overlay.js";
+import { dHash, decide, describePiece, hamming, imageSpread, inkInBox, type TriageCheck } from "./triage.js";
+import type { Anatomy, Box, Piece, SourceAnatomy } from "./types.js";
 
 /**
  * Splits each source into pieces and measures them:
@@ -20,7 +21,7 @@ import type { Box, Piece, SourceAnatomy } from "./types.js";
  *    from the boxes the browser rendered (exact), cropped from the capture.
  */
 
-export const ANATOMY_VERSION = "1.0.0";
+export const ANATOMY_VERSION = "1.1.0";
 export const ANATOMY_KINDS = new Set(["image", "video", "web"]);
 const MAX_SHOTS = 6;
 const MAX_SECTIONS = 8;
@@ -54,15 +55,41 @@ export const loadAllAnatomy = async (project: Project): Promise<SourceAnatomy[]>
 
 const pieceLabel = (source: Source, suffix: string): string => `${source.label ?? source.uri.split(/[\\/]/).pop() ?? source.id}${suffix}`;
 
+const counts = (a: Anatomy) => ({
+  texts: a.blocks.filter((b) => b.kind === "text").length,
+  images: a.blocks.filter((b) => b.kind === "image").length,
+  controls: a.blocks.filter((b) => b.kind === "control").length,
+  panels: a.blocks.filter((b) => b.kind === "panel").length,
+  headline: a.blocks.find((b) => b.n === a.hierarchy.textScale[0]?.block)?.text?.sample,
+});
+
+/** Near-duplicate check against the pieces already measured in this pass. */
+const duplicateCheck = (hash: bigint, seen: { id: string; hash: bigint; group: string }[], group: string): TriageCheck => {
+  const twin = seen.find((s) => s.group === group && hamming(s.hash, hash) <= 4);
+  return { name: "duplicate", ok: !twin, detail: twin ? `looks the same as ${twin.id}` : "distinct from the other pieces" };
+};
+
 /** Measure one image file as a piece. */
-const imagePiece = async (project: Project, source: Source, index: number, image: string, kind: Piece["kind"], label: string, extra: Partial<Piece> = {}): Promise<{ piece: Piece; limitations: string[] }> => {
+const imagePiece = async (project: Project, source: Source, index: number, image: string, kind: Piece["kind"], label: string, extra: Partial<Piece> = {}, seen: { id: string; hash: bigint; group: string }[] = []): Promise<{ piece: Piece; limitations: string[] }> => {
   const reading = await detectBlocks(image);
-  const anatomy = analyzeLayout(reading.width, reading.height, reading.background, reading.blocks);
+  const anatomy = analyzeLayout(reading.width, reading.height, reading.background, reading.blocks, { web: kind === "web-section", exact: false });
   const overlay = await project.artifact(source.id, `anatomy-${index}.jpg`);
   await renderOverlay(image, anatomy, overlay.abs);
+  const grid = await project.artifact(source.id, `grid-${index}.jpg`);
+  await renderGridOverlay(image, anatomy, grid.abs);
   const artifact = image.startsWith(project.root) ? image.slice(project.root.length + 1).replace(/\\/g, "/") : image;
+  const spread = await imageSpread(image);
+  const hash = await dHash(image);
+  const id = `${source.id}#${index}`;
+  const checks: TriageCheck[] = [
+    { name: "blank", ok: spread >= 4, detail: spread >= 4 ? `visible variation (σ ${spread.toFixed(1)})` : `one flat color (σ ${spread.toFixed(1)}): nothing to read` },
+    duplicateCheck(hash, seen, `${source.id}|${kind}`),
+    { name: "composition", ok: anatomy.blocks.length >= 1, detail: anatomy.blocks.length ? `${anatomy.blocks.length} block(s) found` : "no blocks found in the pixels" },
+  ];
+  seen.push({ id, hash, group: `${source.id}|${kind}` });
+  const triage = decide(checks, describePiece({ kind, ...(extra.viewport ? { viewport: extra.viewport } : {}), ...counts(anatomy) }), ["blank", "duplicate"]);
   return {
-    piece: { id: `${source.id}#${index}`, sourceId: source.id, index, kind, label, precision: "estimated", artifact, overlay: overlay.rel.replace(/\\/g, "/"), ...extra, anatomy },
+    piece: { id, sourceId: source.id, index, kind, label, precision: "estimated", artifact, overlay: overlay.rel.replace(/\\/g, "/"), gridOverlay: grid.rel.replace(/\\/g, "/"), ...extra, anatomy, triage },
     limitations: reading.limitations,
   };
 };
@@ -123,6 +150,7 @@ const webPieces = async (project: Project, source: Source, start: number): Promi
   const chosen = viewports.length > 1 ? [viewports[0]!, viewports.at(-1)!] : viewports;
   const pieces: Piece[] = [];
   const limitations: string[] = [];
+  const seen: { id: string; hash: bigint; group: string }[] = [];
   let index = start;
   for (const vp of chosen) {
     const shotPath = join(dir, `page-${vp}.jpg`);
@@ -133,19 +161,23 @@ const webPieces = async (project: Project, source: Source, start: number): Promi
     try { dump = JSON.parse(await readFile(join(dir, `layout-${vp}.json`), "utf8")) as LayoutDump; } catch { dump = null; }
     if (!dump) {
       limitations.push(`No rendered boxes for ${vp}px (extracted before the anatomy existed): sections were measured from pixels. Re-extract the site for exact boxes.`);
+    } else if (!dump.capture) {
+      limitations.push(`The ${vp}px capture was taken before screen-by-screen capture existed: content revealed on scroll may be missing from the picture while its boxes were still measured. Run genome_rebuild on this source to capture it again.`);
     }
     const leaves = dump ? leavesOf(dump.elements, vp) : [];
     const sections = dump ? sectionsOf(leaves, Math.min(dump.docHeight, shotH), vh) : Array.from({ length: Math.ceil(shotH / vh) }, (_, i) => ({ x: 0, y: i * vh, w: 0, h: Math.min(vh, shotH - i * vh) }));
     if (sections.length > MAX_SECTIONS) limitations.push(`Page at ${vp}px has ${sections.length} sections; the first ${MAX_SECTIONS} were dissected.`);
-    for (const sec of sections.slice(0, MAX_SECTIONS)) {
+    const used = sections.slice(0, MAX_SECTIONS);
+    for (const [k, sec] of used.entries()) {
       const h = Math.min(sec.h, shotH - sec.y);
       if (h < 40) continue;
       const crop = await project.artifact(source.id, `section-${vp}-${index}.jpg`);
       await sharp(shotPath).extract({ left: 0, top: sec.y, width: meta.width ?? vp, height: h }).jpeg({ quality: 82 }).toFile(crop.abs);
       const label = pieceLabel(source, ` · ${vp}px · section ${index - start + 1}`);
       const pageBox = { x: 0, y: sec.y, w: vp, h };
+      const where = { index: k + 1, of: used.length, top: k === 0, bottom: k === used.length - 1 };
       if (!dump) {
-        const { piece, limitations: l } = await imagePiece(project, source, index, crop.abs, "web-section", label, { viewport: vp, pageBox });
+        const { piece, limitations: l } = await imagePiece(project, source, index, crop.abs, "web-section", label, { viewport: vp, pageBox }, seen);
         pieces.push(piece);
         limitations.push(...l);
         index++;
@@ -157,9 +189,13 @@ const webPieces = async (project: Project, source: Source, start: number): Promi
         return cy >= sec.y && cy < sec.y + h && e.box.h < h * 1.05;
       });
       const local = within.map((e) => ({ ...e, box: { x: Math.max(0, e.box.x), y: Math.max(0, e.box.y - sec.y), w: Math.min(e.box.w, vp - Math.max(0, e.box.x)), h: Math.min(e.box.h, h - Math.max(0, e.box.y - sec.y)) } }));
+      const raw = await sharp(crop.abs).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+      const pixels = { data: raw.data, width: raw.info.width, height: raw.info.height, channels: raw.info.channels };
       const inputs: LayoutInput[] = [];
       const containerIdx: number[] = [];
       const MEDIA = new Set(["img", "svg", "video", "picture", "canvas", "iframe"]);
+      let textSeen = 0;
+      const unpainted: string[] = [];
       for (const e of local.sort((a, b) => b.box.w * b.box.h - a.box.w * a.box.h)) {
         const area = e.box.w * e.box.h;
         const fill = hexOf(e.background);
@@ -170,6 +206,12 @@ const webPieces = async (project: Project, source: Source, start: number): Promi
         const parentIdx = containerIdx.filter((i) => inside(inputs[i]!.box, e.box)).sort((a, b) => inputs[a]!.box.w * inputs[a]!.box.h - inputs[b]!.box.w * inputs[b]!.box.h)[0];
         const behind = parentIdx !== undefined ? inputs[parentIdx]!.color ?? bg.hex : bg.hex;
         const color = e.text ? hexOf(e.color) : fill ?? hexOf(e.color);
+        // The page code is not the picture: text that left no ink in the capture is not part of this piece.
+        if (kind === "text") {
+          textSeen++;
+          const ink = await inkInBox(pixels, e.box, color, behind);
+          if (!ink.painted) { unpainted.push(e.text ?? e.selector); continue; }
+        }
         const lineH = e.text ? parsePx(e.lineHeight, e.fontSize ?? 16) : undefined;
         inputs.push({
           kind,
@@ -186,10 +228,28 @@ const webPieces = async (project: Project, source: Source, start: number): Promi
         // A control's label lives on the control.
         if (kind === "control" && e.text) inputs.push({ kind: "text", box: e.box, ...(hexOf(e.color) ? { color: hexOf(e.color)! } : {}), background: fill ?? behind, parentIndex: inputs.length - 1, text: { lines: 1, ...(e.fontSize ? { sizePx: e.fontSize } : {}), sample: e.text.slice(0, 60), exact: true }, selector: e.selector, tag: e.tag });
       }
-      const anatomy = analyzeLayout(vp, h, bg, inputs.slice(0, 120));
+      const anatomy = analyzeLayout(vp, h, bg, inputs.slice(0, 120), { web: true, exact: true });
       const overlay = await project.artifact(source.id, `anatomy-${index}.jpg`);
       await renderOverlay(crop.abs, anatomy, overlay.abs);
-      pieces.push({ id: `${source.id}#${index}`, sourceId: source.id, index, kind: "web-section", label, precision: "exact", artifact: crop.rel.replace(/\\/g, "/"), overlay: overlay.rel.replace(/\\/g, "/"), viewport: vp, pageBox, anatomy });
+      const gridArt = await project.artifact(source.id, `grid-${index}.jpg`);
+      await renderGridOverlay(crop.abs, anatomy, gridArt.abs);
+      const id = `${source.id}#${index}`;
+      const spread = await imageSpread(crop.abs);
+      const hash = await dHash(crop.abs);
+      const missing = textSeen ? unpainted.length / textSeen : 0;
+      const content = anatomy.blocks.filter((b) => !b.bleed);
+      const bleedImage = Math.min(1, Math.max(0, ...anatomy.blocks.filter((b) => b.bleed && b.kind === "image").map((b) => b.areaShare)));
+      const checks: TriageCheck[] = [
+        { name: "blank", ok: spread >= 4, detail: spread >= 4 ? `visible variation (σ ${spread.toFixed(1)})` : `the capture is one flat color (σ ${spread.toFixed(1)})` },
+        duplicateCheck(hash, seen, `${source.id}|${vp}`),
+        { name: "painted-text", ok: !(textSeen >= 3 && missing >= 0.5), detail: unpainted.length ? `${unpainted.length} of ${textSeen} text block(s) in the code left no ink in the picture (${unpainted.slice(0, 4).map((t) => `"${t.slice(0, 30)}"`).join(", ")}${unpainted.length > 4 ? "…" : ""}); they were left out` : `all ${textSeen} text block(s) are visible in the picture` },
+        { name: "composition", ok: content.length >= 2, detail: content.length >= 2 ? `${content.length} composed block(s)` : "fewer than two composed blocks: a spacer, a background strip or a single line" },
+        { name: "capture", ok: Boolean(dump.capture) && missing < 0.2, detail: !dump.capture ? "captured with the old one-frame method: content revealed on scroll may be missing" : missing >= 0.2 ? `${Math.round(missing * 100)}% of the text was not visible: part of the section may still be hidden by an animation or a layer` : `photographed screen by screen (${dump.capture.screens} screens)` },
+        { name: "background", ok: !(bleedImage >= 0.8 && content.filter((b) => b.kind === "text").length <= 1), detail: bleedImage >= 0.8 ? `a full-bleed image or video frame covers ${Math.round(bleedImage * 100)}% of the section` : "no dominant background frame" },
+      ];
+      seen.push({ id, hash, group: `${source.id}|${vp}` });
+      const triage = decide(checks, describePiece({ kind: "web-section", viewport: vp, ...where, ...counts(anatomy) }), ["blank", "duplicate", "painted-text", "composition"]);
+      pieces.push({ id, sourceId: source.id, index, kind: "web-section", label, precision: "exact", artifact: crop.rel.replace(/\\/g, "/"), overlay: overlay.rel.replace(/\\/g, "/"), gridOverlay: gridArt.rel.replace(/\\/g, "/"), viewport: vp, pageBox, anatomy, triage });
       if (inputs.length > 120) limitations.push(`${label}: ${inputs.length} elements, the 120 largest were kept.`);
       index++;
     }
@@ -211,9 +271,10 @@ const videoPieces = async (project: Project, source: Source): Promise<{ pieces: 
   const pieces: Piece[] = [];
   const limitations: string[] = [];
   let index = 1;
+  const seen: { id: string; hash: bigint; group: string }[] = [];
   for (const file of chosen) {
     const t = times.get(file);
-    const { piece, limitations: l } = await imagePiece(project, source, index, join(dir, file), "video-shot", pieceLabel(source, ` · shot ${file.match(/\d+/)![0]}${t !== undefined ? ` @${t.toFixed(1)}s` : ""}`), t !== undefined ? { timeSec: t } : {});
+    const { piece, limitations: l } = await imagePiece(project, source, index, join(dir, file), "video-shot", pieceLabel(source, ` · shot ${file.match(/\d+/)![0]}${t !== undefined ? ` @${t.toFixed(1)}s` : ""}`), t !== undefined ? { timeSec: t } : {}, seen);
     pieces.push(piece);
     limitations.push(...l);
     index++;
@@ -235,18 +296,39 @@ export const measureSource = async (project: Project, source: Source): Promise<S
     result = { pieces: [piece], limitations };
   } else if (source.kind === "video") result = await videoPieces(project, source);
   else result = await webPieces(project, source, 1);
+  // A page captured again is a different picture: readings of the old capture no longer describe it.
+  const captured = await capturedAt(project, source.id);
+  const recaptured = source.kind === "web" && previous && captured !== null && captured > previous.measuredAt;
   const kept = result.pieces.map((p) => {
-    const old = previous?.pieces.find((q) => q.id === p.id);
-    return old?.reading ? { ...p, reading: old.reading } : p;
+    const old = recaptured ? undefined : previous?.pieces.find((q) => q.id === p.id);
+    if (!old) return p;
+    return { ...p, ...(old.reading ? { reading: old.reading } : {}), ...(old.skipped ? { skipped: old.skipped } : {}) };
   });
   const anatomy: SourceAnatomy = { schema: "design-genome-anatomy/1", sourceId: source.id, version: ANATOMY_VERSION, measuredAt: new Date().toISOString(), pieces: kept, limitations: [...new Set(result.limitations)] };
   await saveAnatomy(project, anatomy);
+  // Rules read from the old capture go with it.
+  if (recaptured) await rm(join(project.root, "extractions", `${source.id}--dissect.json`), { force: true });
   return anatomy;
 };
 
-/** Anatomy of a source, measuring it the first time it is asked for. */
+/** When the source was last captured (its primary extraction), to know whether pieces still show the same picture. */
+const capturedAt = async (project: Project, sourceId: string): Promise<string | null> => {
+  const dir = join(project.root, "extractions");
+  const files = (await readdir(dir).catch(() => [] as string[])).filter((f) => f.startsWith(`${sourceId}--`) && !/--(dissect|vision)\.json$/.test(f));
+  let latest: string | null = null;
+  for (const f of files) {
+    try {
+      const at = (JSON.parse(await readFile(join(dir, f), "utf8")) as { finishedAt?: string }).finishedAt;
+      if (at && (!latest || at > latest)) latest = at;
+    } catch { /* unreadable extraction: ignore */ }
+  }
+  return latest;
+};
+
+/** Anatomy of a source, measuring it the first time it is asked for, and again when the source was captured again. */
 export const ensureAnatomy = async (project: Project, source: Source): Promise<SourceAnatomy> => {
   const existing = await loadAnatomy(project, source.id);
-  if (existing && existing.version === ANATOMY_VERSION && existing.pieces.length) return existing;
+  const captured = await capturedAt(project, source.id);
+  if (existing && existing.version === ANATOMY_VERSION && existing.pieces.length && !(captured && captured > existing.measuredAt)) return existing;
   return measureSource(project, source);
 };

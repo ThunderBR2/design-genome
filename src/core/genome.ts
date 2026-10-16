@@ -162,6 +162,10 @@ export interface GenomePiece {
   readonly overlay: string;
   readonly canvas: { readonly w: number; readonly h: number; readonly aspectName: string };
   readonly measured: readonly string[];
+  /** Pre-check status, and the reason when the piece was set aside. */
+  readonly triage?: "ok" | "doubtful" | "skip";
+  readonly what?: string;
+  readonly skipped?: string;
   readonly reading?: PieceReading;
 }
 

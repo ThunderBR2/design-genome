@@ -15,6 +15,7 @@ export const briefAnatomy = (g: Genome): string[] => {
   if (!a || !a.pieces.length) return [];
   const out: string[] = [];
   const read = a.pieces.filter((p) => p.reading).length;
+  const setAside = a.pieces.filter((p) => p.skipped || p.triage === "skip").length;
   if (a.concept) {
     const c = a.concept;
     out.push("## Concept", "", `- **Big idea:** ${c.bigIdea}`, `- **Concept:** ${c.concept}`, `- **Why it is this way:** ${c.why}`);
@@ -38,7 +39,7 @@ export const briefAnatomy = (g: Genome): string[] => {
     }
     out.push("");
   }
-  out.push(`Anatomy: ${a.pieces.length} piece(s) measured, ${read} read. Use genome_blueprint to plan a new piece from them, and genome_export "anatomy" for the full dissection.`, "");
+  out.push(`Anatomy: ${a.pieces.length} piece(s) measured, ${read} read${setAside ? `, ${setAside} set aside as not worth reading` : ""}. Use genome_blueprint to plan a new piece from them, and genome_export "anatomy" for the full dissection.`, "");
   return out;
 };
 
@@ -60,10 +61,13 @@ export const toAnatomy = (g: Genome): string => {
   }
   for (const p of a.pieces) {
     out.push(`## ${p.label}`, "", `\`${p.id}\` · ${p.kind} · ${p.canvas.w}×${p.canvas.h}px (${p.canvas.aspectName}) · measurements ${p.precision} · overlay \`${p.overlay}\``, "");
+    if (p.what) out.push(`Pre-check: ${p.triage ?? "ok"} — ${p.what}`, "");
+    if (p.skipped || p.triage === "skip") { out.push(`_Set aside: ${p.skipped ?? "the pre-check found nothing worth reading"}._`, ""); continue; }
     out.push("### Measured", ...p.measured.map((m) => `- ${m}`), "");
     const r = p.reading;
     if (!r) { out.push("_Not read yet._", ""); continue; }
-    out.push(`### Read (${r.pieceType})`, "", r.summary, "");
+    out.push(`### Read (${r.pieceType})`, "", ...(r.whatItIs ? [`**What it is:** ${r.whatItIs}`, ""] : []), r.summary, "");
+    if (r.grid) out.push(`- Grid: ${r.grid.system}${r.grid.agrees ? "" : " (the measured grid was corrected)"}${r.grid.why ? ` — ${r.grid.why}` : ""}`, "");
     if (r.elements.length) {
       out.push("| # | Role | Content | Treatment | Why |", "|---|---|---|---|---|");
       for (const e of r.elements) out.push(`| ${e.block ?? "+"} | ${e.role} | ${(e.content ?? "").replace(/\|/g, "/")} | ${(e.treatment ?? "").replace(/\|/g, "/")} | ${e.why.replace(/\|/g, "/")} |`);

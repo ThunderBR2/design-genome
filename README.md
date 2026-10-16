@@ -55,15 +55,17 @@ Além dos tokens, o Design Genome disseca **cada peça**: cada imagem, cada plan
 | Distâncias | o espaço entre cada vizinho, em px e em % ("título → subtítulo 59px, subtítulo → foto 72px") |
 | Ritmo | se os espaços são múltiplos de uma unidade ("múltiplos de 8px: 8, 16, 24, 32, 64") |
 | Alinhamento | as bordas que vários elementos compartilham ("borda esquerda a 8,8%: #1, #2, #3, #4") |
-| Grid | colunas, gutter e margem que explicam as bordas, com a porcentagem de aderência |
+| Grid | o sistema em que a peça foi montada: grid de colunas web/UI (colunas, gutter, container e quantas colunas cada bloco ocupa), grid modular editorial (colunas × linhas), grid de linha de base, terços ou proporção áurea — ou "composição livre" quando nada explica as bordas melhor que o acaso |
 | Hierarquia | ordem de peso visual e a escada de tamanhos de texto ("o maior é 3,5× o menor") |
 | Equilíbrio e proporção | centro de peso, quadrantes, simetria, onde o foco cai em relação aos terços, à proporção áurea e ao centro óptico |
 | Respiro | quanto da tela é vazio e onde está a maior área livre |
 | Caminho de leitura | por onde o olho entra e para onde vai (coluna à esquerda, Z, eixo central, diagonal) |
 
-Em sites as caixas vêm do navegador (**exatas**, com fonte, peso e tamanho reais de cada texto). Em imagens e quadros vêm dos pixels (**estimadas**): fundo chapado, painéis com o que está dentro deles, e texto, selos e botões sobre foto encontrados por contraste local. Cada peça ganha uma imagem anotada com tudo numerado.
+Em sites as caixas vêm do navegador (**exatas**, com fonte, peso e tamanho reais de cada texto). A página é fotografada **tela por tela, rolando como um visitante**, para que o conteúdo que aparece com animação ao rolar esteja na foto; camadas fixas (cabeçalho, selo, vídeo de fundo) aparecem só na primeira tela, banners de cookies são fechados, e só entra na medida o que foi realmente pintado (opacidade de todos os pais, recorte, cobertura por outra camada). Página de verificação anti-robô (Cloudflare e afins) é recusada em vez de medida. Em imagens e quadros as caixas vêm dos pixels (**estimadas**): fundo chapado, painéis com o que está dentro deles, e texto, selos e botões sobre foto encontrados por contraste local. Cada peça ganha uma imagem anotada com tudo numerado e uma segunda imagem só com o grid.
 
-**2. Lida (o porquê).** Com a peça e a imagem anotada na mão, o Claude da conversa explica cada bloco: o papel, o que mostra, o tratamento e **por que está ali, naquele tamanho e naquela distância**; a estrutura da composição e os princípios usados; por que a peça funciona; a intenção (mensagem, público, emoção, ação); o que quebraria a peça; e regras reaproveitáveis, que entram no genoma e são cruzadas com as outras fontes.
+**Triagem (antes de dissecar).** Cada peça passa por uma checagem: está em branco? é cópia de outra? o texto medido aparece mesmo na foto? há composição ou é só uma faixa de fundo? Peças reprovadas saem da fila com o motivo. Depois o Claude precisa dizer **o que a peça é** e conferir a foto contra os blocos medidos antes de ler; se não fizer sentido, ele a descarta com `genome_dissect_skip`. Peças descartadas não entram nas constantes nem nas plantas.
+
+**2. Lida (o porquê).** Com a peça, a imagem anotada e a imagem do grid na mão, o Claude da conversa diz o que a peça é, confirma ou corrige o grid, e explica cada bloco: o papel, o que mostra, o tratamento e **por que está ali, naquele tamanho e naquela distância**; a estrutura da composição e os princípios usados; por que a peça funciona; a intenção (mensagem, público, emoção, ação); o que quebraria a peça; e regras reaproveitáveis, que entram no genoma e são cruzadas com as outras fontes.
 
 Depois vem a **leitura do projeto inteiro**: uma folha de contato com todas as peças, as leituras e as **constantes medidas** (o que nunca muda entre as peças: margem, tamanho do título em relação à tela, respiro, posição do foco…). O Claude devolve a grande ideia, o conceito, por que o projeto é desse jeito, o que é constante e o que varia, a gramática de montagem, os movimentos de assinatura, como adaptar para outros formatos e o que evitar. Isso abre o brief.
 
@@ -221,8 +223,9 @@ Basta pedir: "rode a passada de visão em todas as fontes". O caminho com `ANTHR
 |---|---|
 | `genome_vision_request` | Imagens da próxima fonte sem leitura, para o Claude analisar |
 | `genome_vision_submit` | Guarda o que o Claude viu e reconstrói o genoma |
-| `genome_dissect_request` | A próxima peça sem leitura: a peça, a peça anotada com a anatomia medida e os números |
-| `genome_dissect_submit` | Guarda a dissecação de uma peça (papel e porquê de cada elemento, composição, intenção, regras) |
+| `genome_dissect_request` | A próxima peça legível sem leitura: a peça, a peça anotada, o grid desenhado, a triagem e os números |
+| `genome_dissect_submit` | Guarda a dissecação de uma peça (o que é, papel e porquê de cada elemento, grid, composição, intenção, regras) |
+| `genome_dissect_skip` | Descarta uma peça que não vale dissecar, com o motivo |
 | `genome_concept_request` | Folha de contato de todas as peças, leituras e constantes medidas, para ler o projeto inteiro |
 | `genome_concept_submit` | Guarda o conceito do projeto (ideia, porquê, constantes, variáveis, gramática, adaptação) |
 | `genome_blueprint` | Planta de uma peça nova num formato: layout adaptado em px, porquê de cada elemento, wireframe |

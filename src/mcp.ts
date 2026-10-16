@@ -25,7 +25,7 @@ Start with genome_brief (compact, everything an agent needs to design in the sys
 Every fact carries support: confirmed (2+ sources agree), single-source, declared-only (stated, not seen in practice) or conflicted.
 Prefer confirmed facts; ask the user about open conflicts instead of picking a side; never invent values listed as unknown.
 After you produce a design, call genome_verify on it and fix the reported deviations.
-Every image, video shot and page section is also a "piece" with a measured anatomy: element boxes, margins, distances, alignment edges, grid, spacing rhythm, hierarchy, balance, proportion, whitespace and reading path (exact for sites, estimated for pixels). You are the one who reads why: call genome_dissect_request, look at the piece and its annotated overlay, and answer with genome_dissect_submit (role and reason of each element, composition, why it works, intent, what is fragile, reusable rules). Repeat until every piece is read, then call genome_concept_request and genome_concept_submit for the project as a whole (big idea, why it is this way, constants, variables, grammar, adaptation). No API key is needed.
+Every image, video shot and page section is also a "piece" with a measured anatomy: element boxes, margins, distances, alignment edges, grid, spacing rhythm, hierarchy, balance, proportion, whitespace and reading path (exact for sites, estimated for pixels). You are the one who reads why: call genome_dissect_request, first identify the piece and check the picture shows what was measured (skip it with genome_dissect_skip when it does not, or when it adds nothing), then look at the annotated overlay and the grid reading and answer with genome_dissect_submit (what it is, role and reason of each element, the grid it is built on, composition, why it works, intent, what is fragile, reusable rules). Repeat until every piece is read, then call genome_concept_request and genome_concept_submit for the project as a whole (big idea, why it is this way, constants, variables, grammar, adaptation). No API key is needed.
 To create a new piece, call genome_blueprint with the request and the format: it picks the closest references, re-lays the best one out on the new canvas in px, and gathers the concept, constants, reasons and rules to keep. Build from it, then genome_verify.
 The older genome_vision_request/submit pass reads a whole source at once; dissection supersedes it when you have time to read piece by piece.
 Logos, icons, photography, copy and restricted typefaces of reference brands must not be copied into deliverables.`;
@@ -144,7 +144,7 @@ export const createMcpServer = (projectDir: string, cliPath = resolve(process.ar
   const reasoned = z.string().describe("write in the user's language");
   tool("genome_dissect_request", {
     title: "Dissect the next piece",
-    description: "Returns the next piece without a reading (or the given pieceId): the piece, the same piece with its measured anatomy drawn on it (numbered blocks, margins, alignment edges, gaps), and the measurements. Read it as an art director and answer with genome_dissect_submit.",
+    description: "Returns the next readable piece without a reading (or the given pieceId): the piece, the same piece with its measured anatomy drawn on it (numbered blocks, margins, alignment edges, gaps), the grid reading (columns, rows, baseline, proportional lines, spans), the automatic pre-check and the measurements. First identify the piece and check the picture shows what was measured; then answer with genome_dissect_submit, or genome_dissect_skip when it is not worth reading.",
     inputSchema: { project, pieceId: z.string().optional().describe("e.g. src_ab12#1; default is the next unread piece"), maxWidth: z.number().min(512).max(1600).optional() },
     annotations: { readOnlyHint: true },
   });
@@ -154,6 +154,7 @@ export const createMcpServer = (projectDir: string, cliPath = resolve(process.ar
     inputSchema: {
       project,
       pieceId: z.string(),
+      whatItIs: z.string().min(12).describe("what the piece is and shows, after checking the picture against the measured blocks (write in the user's language)"),
       pieceType: z.string().describe("poster, social post, story, banner, ad, packaging, landing hero, product section, slide, film frame…"),
       summary: reasoned,
       elements: z.array(z.object({
@@ -164,6 +165,11 @@ export const createMcpServer = (projectDir: string, cliPath = resolve(process.ar
         treatment: z.string().optional(),
         why: z.string().describe("why it is there, at that position, size and distance — cite the measurements"),
       })).max(80),
+      grid: z.object({
+        system: z.string().describe("the grid you see: e.g. '12-column web grid, 24px gutter, 1200px container', 'modular 4×6 editorial grid', 'manuscript column on an 8px baseline', 'thirds', 'free composition'"),
+        agrees: z.boolean().describe("whether the measured grid (image 3) is right"),
+        why: z.string().optional().describe("why the piece is set on it, or what the measurement got wrong"),
+      }).optional(),
       composition: z.object({
         structure: z.string(),
         eyePath: z.string(),
@@ -184,6 +190,11 @@ export const createMcpServer = (projectDir: string, cliPath = resolve(process.ar
         confidence: z.number().min(0).max(1),
       })).max(16).optional(),
     },
+  });
+  tool("genome_dissect_skip", {
+    title: "Set a piece aside",
+    description: "Marks a piece as not worth dissecting, with the reason (the picture does not show what was measured, a loader or cookie layer, a bot check, blank, a duplicate, a background strip or video frame with nothing composed). It leaves the reading queue, the measured constants and the blueprints.",
+    inputSchema: { project, pieceId: z.string(), reason: reasoned },
   });
   tool("genome_concept_request", {
     title: "Read the project as a whole",

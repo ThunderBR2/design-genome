@@ -92,3 +92,68 @@ export const renderOverlay = async (image: string, anatomy: Anatomy, out: string
   const base = await sharp(image, { failOn: "none" }).rotate().resize(width, height, { fit: "fill" }).flatten({ background: "#ffffff" }).modulate({ brightness: 0.9 }).toBuffer();
   await sharp(base).composite([{ input: Buffer.from(overlaySvg(anatomy, width, height)), top: 0, left: 0 }]).jpeg({ quality: 82 }).toFile(out);
 };
+
+/**
+ * The grid reading drawn alone, so it can be judged without the block clutter:
+ * column bands (gutters left clear), row bands, the baseline every unit,
+ * proportional lines, and each block's outline with the columns it spans.
+ */
+export const gridSvg = (a: Anatomy, width: number, height: number): string => {
+  const s = width / a.canvas.w;
+  const u = Math.max(1, Math.round(Math.min(width, height) / 400));
+  const font = Math.max(11, Math.round(Math.min(width, height) / 55));
+  const g = a.grids;
+  const parts: string[] = [];
+  const tag = (x: number, y: number, text: string, bg: string, fg = "#fff") => {
+    const w = Math.round(text.length * font * 0.6 + font * 0.6), h = Math.round(font * 1.35);
+    const lx = Math.min(Math.max(0, x), width - w), ly = Math.min(Math.max(0, y), height - h);
+    parts.push(`<rect x="${lx}" y="${ly}" width="${w}" height="${h}" rx="${Math.round(h / 4)}" fill="${bg}" opacity="0.92"/><text x="${lx + w / 2}" y="${ly + h * 0.74}" font-family="DejaVu Sans, Arial, sans-serif" font-size="${font}" font-weight="700" fill="${fg}" text-anchor="middle">${esc(text)}</text>`);
+  };
+  if (g?.baseline && g.baseline.unitPx * s >= 3) {
+    for (let y = g.baseline.originPx; y <= a.canvas.h; y += g.baseline.unitPx) parts.push(`<line x1="0" y1="${y * s}" x2="${width}" y2="${y * s}" stroke="#ff3b30" stroke-width="${Math.max(0.5, u * 0.6)}" opacity="0.35"/>`);
+  }
+  if (g?.columns && g.columns.columns >= 1) {
+    const c = g.columns;
+    for (let k = 0; k < c.columns; k++) {
+      const x = (c.marginPx + k * (c.columnPx + c.gutterPx)) * s;
+      parts.push(`<rect x="${x}" y="0" width="${c.columnPx * s}" height="${height}" fill="#00e5ff" fill-opacity="0.13" stroke="#00e5ff" stroke-opacity="0.7" stroke-width="${u}"/>`);
+      tag(x + 2 * u, 2 * u, `c${k + 1}`, "#007c8c");
+    }
+  }
+  if (g?.rows) {
+    const r = g.rows;
+    for (let k = 0; k < r.count; k++) {
+      const y = (r.startPx + k * (r.trackPx + r.gutterPx)) * s;
+      parts.push(`<rect x="0" y="${y}" width="${width}" height="${r.trackPx * s}" fill="#ffd400" fill-opacity="0.08" stroke="#ffd400" stroke-opacity="0.7" stroke-width="${u}" stroke-dasharray="${6 * u} ${4 * u}"/>`);
+      tag(2 * u, y + 2 * u, `r${k + 1}`, "#7a6500");
+    }
+  }
+  if (g?.proportional) {
+    for (const l of g.proportional.lines) {
+      const p = l.at * s;
+      parts.push(l.axis === "x" ? `<line x1="${p}" y1="0" x2="${p}" y2="${height}" stroke="#b16bff" stroke-width="${u * 2}" stroke-dasharray="${10 * u} ${6 * u}"/>` : `<line x1="0" y1="${p}" x2="${width}" y2="${p}" stroke="#b16bff" stroke-width="${u * 2}" stroke-dasharray="${10 * u} ${6 * u}"/>`);
+    }
+  }
+  const spans = new Map((g?.columnSpans ?? []).map((sp) => [sp.block, sp]));
+  for (const b of a.blocks.filter((b) => !b.bleed)) {
+    const sp = spans.get(b.n);
+    const off = sp && (sp.from === null || sp.to === null) && !sp.centered;
+    const color = off ? "#ff7a00" : "#ffffff";
+    parts.push(`<rect x="${b.box.x * s}" y="${b.box.y * s}" width="${b.box.w * s}" height="${b.box.h * s}" fill="none" stroke="${color}" stroke-width="${u * 1.5}" opacity="0.9"/>`);
+    if (sp?.centered) tag(b.box.x * s, b.box.y * s, `#${b.n} centered`, "#111");
+    else if (sp && !off) tag(b.box.x * s, b.box.y * s, `#${b.n} c${sp.from}${sp.to !== sp.from ? `–${sp.to}` : ""}`, "#111");
+    else tag(b.box.x * s, b.box.y * s, `#${b.n}${off ? " off-grid" : ""}`, off ? "#a34700" : "#111");
+  }
+  const title = !g ? "grid not measured" : g.kind === "free" ? "free composition — no grid explains the edges" : g.kind === "modular" ? `modular grid ${g.columns!.columns}×${g.rows!.count}` : g.kind === "column" ? `${g.columns!.columns}-column grid · gutter ${g.columns!.gutterPx}px` : "single-column (manuscript) grid";
+  const extra = [g?.baseline ? `baseline ${g.baseline.unitPx}px` : "", g?.proportional ? g.proportional.system : "", g?.container ? `container ${g.container.widthPx}px` : ""].filter(Boolean).join(" · ");
+  tag(width / 2 - (title.length + extra.length) * font * 0.3, height - font * 1.8, `${title}${extra ? ` · ${extra}` : ""}`, "#000");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${parts.join("")}</svg>`;
+};
+
+export const renderGridOverlay = async (image: string, anatomy: Anatomy, out: string, maxSide = 1400): Promise<void> => {
+  const scale = Math.min(1, maxSide / Math.max(anatomy.canvas.w, anatomy.canvas.h));
+  const width = Math.max(1, Math.round(anatomy.canvas.w * scale));
+  const height = Math.max(1, Math.round(anatomy.canvas.h * scale));
+  const base = await sharp(image, { failOn: "none" }).rotate().resize(width, height, { fit: "fill" }).flatten({ background: "#ffffff" }).modulate({ brightness: 0.55 }).toBuffer();
+  await sharp(base).composite([{ input: Buffer.from(gridSvg(anatomy, width, height)), top: 0, left: 0 }]).jpeg({ quality: 82 }).toFile(out);
+};

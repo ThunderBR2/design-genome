@@ -7,7 +7,7 @@ import { normalizeColor } from "../core/color.js";
 import { primaryFamily } from "../core/fonts.js";
 import type { Evidence } from "../core/types.js";
 import { ObservationCollector, finishExtraction, type ExtractContext, type Extractor } from "./support.js";
-import { collectPage, type PageCollection, type PageElement } from "./web.page.js";
+import { collectPage, dismissOverlays, hideScreenChrome, interstitialProbe, paintCheck, tagElements, type PageCollection, type PageElement, type PaintRecord } from "./web.page.js";
 
 export const DEFAULT_VIEWPORTS = [390, 1440] as const;
 const MAX_ELEMENTS = 5000;
@@ -86,7 +86,9 @@ const bodySizeOf = (elements: readonly PageElement[]): number => {
 
 export const webExtractor: Extractor = {
   name: "web",
-  version: "1.1.0",
+  version: "1.2.0",
+  /** 1.2 captures screen by screen and keeps only what was painted: older captures are redone. */
+  recaptureBelow: "1.2.0",
   async extract({ project, source, log }: ExtractContext) {
     const started = new Date();
     const { chromium } = await import("playwright");
@@ -111,24 +113,36 @@ export const webExtractor: Extractor = {
         await context.addInitScript("window.__name = (f) => f;");
         const page = await context.newPage();
         try {
-          await page.goto(target, { waitUntil: "load", timeout: 60_000 });
+          const response = await page.goto(target, { waitUntil: "load", timeout: 60_000 });
           await page.waitForLoadState("networkidle", { timeout: 15_000 }).catch(() => limitations.push(`Network never went idle at ${viewport}px; late content may be missing.`));
           await page.evaluate("window.__name = (f) => f;");
+          await assertRealPage(page, target, response?.status());
+          const dismissed = (await page.evaluate(dismissOverlays)) as string[];
+          if (dismissed.length) {
+            limitations.push(`A consent layer was dismissed at ${viewport}px (clicked "${dismissed.join('", "')}").`);
+            await page.waitForTimeout(600);
+          }
           await autoScroll(page);
           await page.evaluate(() => document.fonts.ready.then(() => undefined));
-          const data = (await page.evaluate(collectPage, MAX_ELEMENTS)) as PageCollection;
-          if (data.truncated) limitations.push(`Only the first ${MAX_ELEMENTS} visible elements were sampled at ${viewport}px.`);
-          for (const href of data.blockedSheets) limitations.push(`Stylesheet ${href} is cross-origin; its media queries and variables were not read (computed styles still are).`);
+          await page.evaluate(tagElements);
+          const collected = (await page.evaluate(collectPage, MAX_ELEMENTS)) as PageCollection;
+          if (collected.truncated) limitations.push(`Only the first ${MAX_ELEMENTS} visible elements were sampled at ${viewport}px.`);
+          for (const href of collected.blockedSheets) limitations.push(`Stylesheet ${href} is cross-origin; its media queries and variables were not read (computed styles still are).`);
 
           const shot = await project.artifact(source.id, `page-${viewport}.jpg`);
-          const height = Math.min(data.docHeight, MAX_SCREENSHOT_HEIGHT);
-          await page.setViewportSize({ width: viewport, height: Math.max(600, Math.min(height, MAX_SCREENSHOT_HEIGHT)) });
-          await page.waitForTimeout(300);
-          await page.screenshot({ path: shot.abs, type: "jpeg", quality: 72, clip: { x: 0, y: 0, width: viewport, height } });
-          if (data.docHeight > MAX_SCREENSHOT_HEIGHT) limitations.push(`Screenshot at ${viewport}px stops at ${MAX_SCREENSHOT_HEIGHT}px of ${data.docHeight}px.`);
+          const capture = await captureScreens(page, viewport, viewport < 700 ? 844 : 900, shot.abs);
+          limitations.push(...capture.limitations);
+          // Boxes as they were painted on the screens the capture shows, and only what was painted.
+          const data: PageCollection = { ...collected, docHeight: capture.height, elements: collected.elements.flatMap((el) => {
+            const rec = capture.records.get(el.idx);
+            if (!rec || !rec.painted) return [];
+            return [{ ...el, box: rec.box, ...(rec.textBox ? { textBox: rec.textBox } : {}) }];
+          }) };
+          const unpainted = collected.elements.filter((el) => { const r = capture.records.get(el.idx); return r && !r.painted && el.ownText; }).length;
+          if (unpainted) limitations.push(`${unpainted} text element(s) exist in the page code but were never painted at ${viewport}px (hidden, transparent or covered); they were left out of the measurements.`);
 
           const layout = await project.artifact(source.id, `layout-${viewport}.json`);
-          await writeFile(layout.abs, JSON.stringify(layoutDump(data)));
+          await writeFile(layout.abs, JSON.stringify(layoutDump(data, { method: capture.method, screens: capture.screens, hiddenChrome: capture.hiddenChrome, unpaintedText: unpainted })));
           const rendered = await renderedFonts(page, data.elements);
           (meta.renderedFonts as Record<string, string[]>)[String(viewport)] = rendered;
           await collectObservations(collector, data, viewport, source.id, shot.rel, rendered, limitations);
@@ -154,16 +168,105 @@ export const webExtractor: Extractor = {
   },
 };
 
+/** First pass down the page, slow enough for scroll-triggered content to load and reveal. */
 async function autoScroll(page: import("playwright").Page): Promise<void> {
   await page.evaluate(async () => {
-    const step = window.innerHeight * 0.8;
-    for (let i = 0; i < 40 && window.scrollY + window.innerHeight < document.documentElement.scrollHeight; i++) {
+    const step = window.innerHeight * 0.7;
+    for (let i = 0; i < 60 && window.scrollY + window.innerHeight < document.documentElement.scrollHeight; i++) {
       window.scrollBy(0, step);
-      await new Promise((r) => setTimeout(r, 120));
+      await new Promise((r) => setTimeout(r, 220));
     }
     window.scrollTo(0, 0);
-    await new Promise((r) => setTimeout(r, 400));
+    await new Promise((r) => setTimeout(r, 500));
   });
+}
+
+const BLOCKED = /just a moment|verify(ing)? (that )?you are (a )?human|performing security verification|checking (if the site connection is secure|your browser)|attention required|access denied|are you a robot|captcha|ddos protection|enable javascript and cookies to continue|request blocked|forbidden/i;
+
+/**
+ * Refuse to measure a bot check or an error page as if it were the design.
+ * Challenges that clear themselves get a few seconds first.
+ */
+async function assertRealPage(page: import("playwright").Page, target: string, status?: number): Promise<void> {
+  for (let i = 0; i < 4; i++) {
+    const probe = (await page.evaluate(interstitialProbe)) as { title: string; text: string; length: number };
+    const blocked = BLOCKED.test(probe.title) || (probe.length < 2500 && BLOCKED.test(probe.text));
+    if (!blocked && (!status || status < 400)) return;
+    if (i === 3) {
+      const what = blocked ? `a bot check or block page ("${(probe.title || probe.text).slice(0, 80)}")` : `HTTP ${status}`;
+      throw new Error(`${target} answered with ${what} instead of the site, so there is nothing real to measure. Capture the page from your own browser (a full-page screenshot added as an image) or try again later.`);
+    }
+    await page.waitForTimeout(3000);
+    status = undefined;
+  }
+}
+
+/** Wait until the screen stops changing: running finite animations end, then a short pause for script-driven reveals. */
+async function settle(page: import("playwright").Page): Promise<void> {
+  await page.waitForTimeout(450);
+  await page.evaluate(() => Promise.race([
+    Promise.all(document.getAnimations().filter((a) => a.playState === "running" && Number.isFinite(Number(a.effect?.getComputedTiming().endTime))).map((a) => a.finished.catch(() => undefined))),
+    new Promise((r) => setTimeout(r, 1500)),
+  ])).catch(() => undefined);
+  await page.waitForTimeout(150);
+}
+
+const MAX_SCREENS = 24;
+
+/**
+ * Photograph the page one screen at a time, the way a visitor scrolls through it,
+ * and stitch the screens. At every stop, record which elements are painted and
+ * where. Fixed layers show on the first screen only. When the page does not
+ * scroll natively (a custom scroll container), fall back to one tall render.
+ */
+async function captureScreens(page: import("playwright").Page, viewport: number, vh: number, out: string): Promise<{ height: number; records: Map<number, PaintRecord>; method: "screens" | "full"; screens: number; hiddenChrome: number; limitations: string[] }> {
+  const limitations: string[] = [];
+  const records = new Map<number, PaintRecord>();
+  const keep = (list: readonly PaintRecord[]) => {
+    for (const r of list) {
+      const old = records.get(r.idx);
+      // The truest box is from the screen that shows the element most completely; painted anywhere fully shown wins.
+      const better = !old || (r.inView > old.inView + 0.05) || (Math.abs(r.inView - old.inView) <= 0.05 && r.painted && !old.painted);
+      if (better) records.set(r.idx, r);
+    }
+  };
+  const docHeight = async () => Math.min(MAX_SCREENSHOT_HEIGHT, (await page.evaluate(() => document.documentElement.scrollHeight)) as number);
+  let height = await docHeight();
+  const tiles: { y: number; png: Buffer }[] = [];
+  let hiddenChrome = 0;
+  let stuck = false;
+  for (let target = 0, i = 0; i < MAX_SCREENS; i++) {
+    await page.evaluate((y) => window.scrollTo(0, y), target);
+    await settle(page);
+    const y = (await page.evaluate(() => Math.round(window.scrollY))) as number;
+    if (i > 0 && y <= tiles.at(-1)!.y) { stuck = tiles.length === 1 && height > vh * 1.2; break; }
+    tiles.push({ y, png: await page.screenshot({ type: "png" }) });
+    keep((await page.evaluate(paintCheck)) as PaintRecord[]);
+    if (i === 0) hiddenChrome = (await page.evaluate(hideScreenChrome)) as number;
+    height = await docHeight();
+    if (y + vh >= height) break;
+    target = Math.min(y + vh, height - vh);
+  }
+  if (stuck) {
+    limitations.push(`The page did not scroll natively at ${viewport}px (it likely scrolls inside a container); it was rendered in one tall frame, so scroll-triggered content may be missing.`);
+    records.clear();
+    await page.setViewportSize({ width: viewport, height: Math.max(600, height) });
+    await settle(page);
+    await page.screenshot({ path: out, type: "jpeg", quality: 72, clip: { x: 0, y: 0, width: viewport, height } });
+    keep((await page.evaluate(paintCheck)) as PaintRecord[]);
+    return { height, records, method: "full", screens: 1, hiddenChrome: 0, limitations };
+  }
+  const total = Math.min(MAX_SCREENSHOT_HEIGHT, tiles.at(-1)!.y + vh);
+  const stitched = await sharp({ create: { width: viewport, height: total, channels: 3, background: "#ffffff" } })
+    .composite(tiles.filter((t) => t.y < total).map((t) => ({ input: t.png, left: 0, top: t.y })))
+    .png()
+    .toBuffer();
+  await sharp(stitched).extract({ left: 0, top: 0, width: viewport, height: total }).jpeg({ quality: 72 }).toFile(out);
+  if (total < (await page.evaluate(() => document.documentElement.scrollHeight) as number)) limitations.push(`Capture at ${viewport}px stops at ${total}px of the page.`);
+  if (hiddenChrome) limitations.push(`${hiddenChrome} fixed or edge-stuck layer(s) (header, badge, background) show on the first screen only at ${viewport}px.`);
+  // Drop records below the stitched height.
+  for (const [k, r] of records) if (r.box.y >= total) records.delete(k);
+  return { height: total, records, method: "screens", screens: tiles.length, hiddenChrome, limitations };
 }
 
 /** Ask the engine which font files actually painted the text, not just the declared stack. */
@@ -386,16 +489,27 @@ export interface LayoutElement {
   readonly interactive?: boolean;
 }
 
+export interface CaptureInfo {
+  /** screens: photographed screen by screen while scrolling; full: one tall render. */
+  readonly method: "screens" | "full";
+  readonly screens: number;
+  readonly hiddenChrome: number;
+  /** Text elements present in the code but never painted. */
+  readonly unpaintedText: number;
+}
+
 export interface LayoutDump {
   readonly url: string;
   readonly viewport: number;
   readonly docHeight: number;
   readonly elements: readonly LayoutElement[];
+  /** Absent in dumps written before 1.2: those boxes include content that may not have been painted. */
+  readonly capture?: CaptureInfo;
 }
 
 const MEDIA_TAGS = new Set(["img", "svg", "video", "picture", "canvas", "iframe"]);
 
-export const layoutDump = (data: PageCollection): LayoutDump => {
+export const layoutDump = (data: PageCollection, capture?: CaptureInfo): LayoutDump => {
   const out: LayoutElement[] = [];
   for (const el of data.elements) {
     const area = el.box.w * el.box.h;
@@ -416,5 +530,5 @@ export const layoutDump = (data: PageCollection): LayoutDump => {
       ...(el.isInteractive ? { interactive: true } : {}),
     });
   }
-  return { url: data.url, viewport: data.viewport, docHeight: data.docHeight, elements: out };
+  return { url: data.url, viewport: data.viewport, docHeight: data.docHeight, elements: out, ...(capture ? { capture } : {}) };
 };

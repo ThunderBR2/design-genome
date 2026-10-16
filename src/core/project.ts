@@ -200,6 +200,16 @@ export class Project {
     return out;
   }
 
+  /** Version of the extractor that wrote a stored extraction, or null when there is none. */
+  async extractionVersion(sourceId: string, extractor: string): Promise<string | null> {
+    try {
+      const raw = JSON.parse(await readFile(join(this.root, "extractions", `${sourceId}--${extractor}.json`), "utf8")) as { extractorVersion?: string };
+      return raw.extractorVersion ?? "0.0.0";
+    } catch {
+      return null;
+    }
+  }
+
   async hasExtraction(sourceId: string, extractor: string): Promise<boolean> {
     try {
       await stat(join(this.root, "extractions", `${sourceId}--${extractor}.json`));

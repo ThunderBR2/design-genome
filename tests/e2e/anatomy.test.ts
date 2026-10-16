@@ -62,6 +62,7 @@ describe("anatomy cycle", () => {
   it("stores readings, turns their rules into genome rules, and reads the concept", async () => {
     const reading = (pieceId: string) => ({
       pieceId,
+      whatItIs: "A seasonal social post: headline, image band and button.",
       pieceType: "social post",
       summary: "Seasonal post.",
       elements: [{ block: 1, role: "headline", why: "On the shared left margin." }],
@@ -79,7 +80,11 @@ describe("anatomy cycle", () => {
       next = await svc.dissectRequest();
     }
     const g = await svc.genome();
-    expect(g.anatomy!.pieces.every((p) => p.reading)).toBe(true);
+    const readable = g.anatomy!.pieces.filter((p) => !p.skipped && p.triage !== "skip");
+    expect(readable.length).toBeGreaterThanOrEqual(4);
+    expect(readable.every((p) => p.reading)).toBe(true);
+    // A one-line strip (the mobile footer) is set aside by the pre-check, with its reason, and never read.
+    for (const p of g.anatomy!.pieces.filter((p) => p.triage === "skip")) expect(p.reading).toBeUndefined();
     const rule = g.rules.find((r) => r.statement.startsWith("Every block starts on the same left margin"))!;
     expect(rule.origin).toBe("inferred");
     expect(rule.support.status).toBe("confirmed");
