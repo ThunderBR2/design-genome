@@ -11,6 +11,8 @@ export interface ExtractContext {
 export interface Extractor {
   readonly name: string;
   readonly version: string;
+  /** Extractions stored by a version older than this are redone instead of reused from the cache. */
+  readonly recaptureBelow?: string;
   extract(context: ExtractContext): Promise<Extraction>;
 }
 

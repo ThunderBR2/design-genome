@@ -126,12 +126,15 @@ export const buildGenome = async (project: Project): Promise<Genome> => {
 
   const pa = await projectAnatomy(project);
   const anatomy: GenomeAnatomy = {
-    pieces: pa.pieces.map((p) => ({ id: p.id, sourceId: p.sourceId, label: p.label, kind: p.kind, precision: p.precision, overlay: p.overlay, canvas: { w: p.anatomy.canvas.w, h: p.anatomy.canvas.h, aspectName: p.anatomy.canvas.aspectName }, measured: p.anatomy.summary, ...(p.reading ? { reading: p.reading } : {}) })),
+    pieces: pa.pieces.map((p) => ({ id: p.id, sourceId: p.sourceId, label: p.label, kind: p.kind, precision: p.precision, overlay: p.overlay, canvas: { w: p.anatomy.canvas.w, h: p.anatomy.canvas.h, aspectName: p.anatomy.canvas.aspectName }, measured: p.anatomy.summary, ...(p.triage ? { triage: p.triage.status, what: p.triage.what } : {}), ...(p.skipped ? { skipped: p.skipped.reason } : {}), ...(p.reading ? { reading: p.reading } : {}) })),
     invariants: pa.invariants,
     concept: pa.concept,
   };
-  const undissected = anatomy.pieces.filter((p) => !p.reading).length;
-  if (anatomy.pieces.length && undissected) unknowns.push(`${undissected} of ${anatomy.pieces.length} piece(s) are measured but not read: the why of each element is unknown until genome_dissect_request/submit runs on them.`);
+  const readable = anatomy.pieces.filter((p) => !p.skipped && p.triage !== "skip");
+  const undissected = readable.filter((p) => !p.reading).length;
+  if (readable.length && undissected) unknowns.push(`${undissected} of ${readable.length} readable piece(s) are measured but not read: the why of each element is unknown until genome_dissect_request/submit runs on them.`);
+  const setAside = anatomy.pieces.length - readable.length;
+  if (setAside) unknowns.push(`${setAside} piece(s) were set aside as not worth reading (blank, duplicate, content not visible in the capture, or nothing composed); they do not count toward the constants.`);
   if (anatomy.pieces.some((p) => p.reading) && !anatomy.concept) unknowns.push("No project concept yet: call genome_concept_request after dissecting the pieces.");
 
   return {

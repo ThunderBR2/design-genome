@@ -1,5 +1,6 @@
 import { cluster1D } from "../core/numeric.js";
-import type { AlignmentAxis, Anatomy, Block, BlockKind, Box, Gap, GridReading } from "./types.js";
+import { analyzeGrid } from "./grid.js";
+import type { AlignmentAxis, Anatomy, Block, BlockKind, Box, Gap } from "./types.js";
 
 /**
  * Turns a list of element boxes into the measured anatomy of a piece: margins,
@@ -95,42 +96,7 @@ const largestEmpty = (occupied: boolean[][], cellW: number, cellH: number): Box 
   return best.area ? { x: Math.round(best.x * cellW), y: Math.round(best.y * cellH), w: Math.round(best.w * cellW), h: Math.round(best.h * cellH) } : null;
 };
 
-const fitGrid = (edges: { left: number[]; right: number[] }, live: Box, W: number): GridReading | null => {
-  const all = [...edges.left, ...edges.right];
-  if (edges.left.length < 3) return null;
-  const tol = Math.max(3, W * 0.008);
-  const evaluate = (n: number, g: number): GridReading | null => {
-    const col = (live.w - (n - 1) * g) / n;
-    if (col < W * 0.05) return null;
-    const lines: number[] = [];
-    for (let k = 0; k < n; k++) { const l = live.x + k * (col + g); lines.push(l, l + col); }
-    const hits = all.filter((e) => lines.some((l) => Math.abs(l - e) <= tol)).length;
-    // Columns the content actually starts in: a grid nobody uses is not a grid.
-    const used = new Set(edges.left.map((e) => lines.findIndex((l, i) => i % 2 === 0 && Math.abs(l - e) <= tol)).filter((i) => i >= 0)).size;
-    return { columns: n, gutterPx: Math.round(g), marginPx: Math.round(live.x), columnPx: Math.round(col), fit: r2(hits / all.length), description: "", used } as GridReading & { used: number };
-  };
-  const single = evaluate(1, 0);
-  let best = single as (GridReading & { used: number }) | null;
-  for (let n = 2; n <= 12; n++) {
-    for (let g = 0; g <= W * 0.06; g += Math.max(1, W * 0.005)) {
-      const c = evaluate(n, g) as (GridReading & { used: number }) | null;
-      if (!c || c.used < 2 || all.length < 8) continue;
-      // A multi-column grid must explain clearly more edges than a single column, and each column must earn its place.
-      const gain = c.fit - (single?.fit ?? 0);
-      const score = c.fit - 0.04 * (n - 1);
-      const bestScore = best ? best.fit - 0.04 * (best.columns - 1) : -1;
-      if (gain >= 0.15 && c.fit >= 0.75 && score > bestScore + 1e-9) best = c;
-    }
-  }
-  if (!best || best.fit < 0.5) return null;
-  const { used: _u, ...grid } = best;
-  const description = grid.columns === 1
-    ? `Single column ${grid.columnPx}px wide (${pct(grid.columnPx / W)} of the width), ${grid.marginPx}px side margin; ${Math.round(grid.fit * 100)}% of block edges sit on it.`
-    : `${grid.columns}-column grid: columns ${grid.columnPx}px, gutter ${grid.gutterPx}px (${pct(grid.gutterPx / W)}), margin ${grid.marginPx}px; ${Math.round(grid.fit * 100)}% of block edges land on a column line.`;
-  return { ...grid, description };
-};
-
-export const analyzeLayout = (W: number, H: number, background: { hex: string; uniform: boolean }, input: readonly LayoutInput[]): Anatomy => {
+export const analyzeLayout = (W: number, H: number, background: { hex: string; uniform: boolean }, input: readonly LayoutInput[], options: { web?: boolean; exact?: boolean } = {}): Anatomy => {
   // Keep the input index so parents can be renumbered after sorting.
   const tagged = input.map((b, i) => ({ ...b, _i: i }));
   const ordered = readingSort(tagged) as (LayoutInput & { _i: number })[];
@@ -236,9 +202,9 @@ export const analyzeLayout = (W: number, H: number, background: { hex: string; u
       ? `Gaps are multiples of ${unitPx}px (${pct(unitPx / H)} of the height): ${values.map((v, i) => `${v.px}px (×${multiples[i]}, ${v.count}×)`).join(", ")}.`
       : `Distinct gaps: ${values.map((v) => `${v.px}px (${v.count}×)`).join(", ")}; ratios to the smallest ${multiples.join(" : ")} — no single unit explains them.`;
 
-  // Grid from the left/right edges of content inside the live area.
-  const topLevel = content.filter((b) => !b.parent);
-  const grid = fitGrid({ left: topLevel.map((b) => b.box.x), right: topLevel.map((b) => b.box.x + b.box.w) }, liveArea, W);
+  // Grid: column, modular, baseline and proportional systems, accepted only when they beat chance.
+  const grids = analyzeGrid(W, H, blocks, liveArea, { web: Boolean(options.web), exact: Boolean(options.exact) });
+  const grid = grids.columns;
 
   // Hierarchy: weight order, and the text size ladder.
   const order = [...blocks].filter((b) => !b.bleed && b.kind !== "panel").sort((a, b) => b.weight - a.weight).map((b) => b.n);
@@ -321,7 +287,7 @@ export const analyzeLayout = (W: number, H: number, background: { hex: string; u
     `Canvas ${W}×${H}px (${aspectName(W, H)}), ${background.uniform ? `flat background ${background.hex}` : `non-flat background (≈${background.hex} at the edges)`}; ${blocks.length} blocks, ${textBlocks.length} of them text.`,
     `Margins: left ${margins.left}px (${pct(marginsRel.left)}), right ${margins.right}px (${pct(marginsRel.right)}), top ${margins.top}px (${pct(marginsRel.top)}), bottom ${margins.bottom}px (${pct(marginsRel.bottom)})${Math.abs(margins.left - margins.right) <= W * 0.01 ? "; side margins are equal" : ""}.`,
     axisText.length ? `Alignment: ${axisText.join("; ")}.` : "No shared alignment edges.",
-    grid?.description ?? "No column grid explains the block edges (free or single-element composition).",
+    grids.description,
     rhythmText,
     hierText,
     `Balance: ${symmetry}, ${heavySide}, ${heavyEnd}.`,
@@ -339,6 +305,7 @@ export const analyzeLayout = (W: number, H: number, background: { hex: string; u
     gaps,
     rhythm: { values, unitPx, multiples, description: rhythmText },
     grid,
+    grids,
     hierarchy: { order, textScale, description: hierText },
     balance: { centroid: { x: r3(cx), y: r3(cy) }, quadrants: { tl: r2(quad.tl), tr: r2(quad.tr), bl: r2(quad.bl), br: r2(quad.br) }, symmetry, description: `${symmetry}, ${heavySide}, ${heavyEnd}` },
     proportion,

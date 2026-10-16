@@ -12,8 +12,8 @@ import { verify, type VerifyReport } from "./verify/index.js";
 import { visionExtraction, visionImages, type VisionImage, type VisionReply } from "./extractors/vision.js";
 import { buildBlueprint, type Blueprint, type BlueprintInput } from "./anatomy/blueprint.js";
 import { ANATOMY_KINDS, ensureAnatomy, loadAnatomy, measureSource } from "./anatomy/pieces.js";
-import { contactSheet, pieceImages, projectAnatomy, saveConcept, submitReading, type ConceptInput, type PieceImages, type ProjectAnatomy, type ReadingInput } from "./anatomy/reading.js";
-import type { Concept, Piece } from "./anatomy/types.js";
+import { contactSheet, pieceImages, projectAnatomy, saveConcept, skipPiece, submitReading, type ConceptInput, type PieceImages, type ProjectAnatomy, type ReadingInput } from "./anatomy/reading.js";
+import { isReadable, needsReading, type Concept, type Piece } from "./anatomy/types.js";
 
 const MEDIA = /\.(png|jpe?g|webp|gif|avif|tiff?|bmp|svg|mp4|mov|m4v|webm|mkv|avi|pdf|md|markdown|txt)$/i;
 
@@ -152,20 +152,30 @@ export class GenomeService {
   }
 
   /** The next piece without a reading (or a given one), with its images and measurements. */
-  async dissectRequest(pieceId?: string, maxSide = 1280): Promise<{ images: PieceImages; remaining: number; total: number } | null> {
+  async dissectRequest(pieceId?: string, maxSide = 1280): Promise<{ images: PieceImages; remaining: number; total: number; setAside: { id: string; label: string; reason: string }[] } | null> {
     const pa = await this.anatomy();
-    const piece = pieceId ? pa.pieces.find((p) => p.id === pieceId) : pa.pieces.find((p) => !p.reading);
+    const piece = pieceId ? pa.pieces.find((p) => p.id === pieceId) : pa.pieces.find(needsReading);
     if (pieceId && !piece) throw new Error(`Unknown piece ${pieceId}. Known: ${pa.pieces.map((p) => p.id).join(", ") || "none"}`);
     if (!piece) return null;
-    const remaining = pa.pieces.filter((p) => !p.reading && p.id !== piece.id).length;
-    return { images: await pieceImages(await this.project(), piece, maxSide), remaining, total: pa.pieces.length };
+    const remaining = pa.pieces.filter((p) => needsReading(p) && p.id !== piece.id).length;
+    const setAside = pa.pieces.filter((p) => !isReadable(p)).map((p) => ({ id: p.id, label: p.label, reason: p.skipped?.reason ?? p.triage?.checks.filter((c) => !c.ok).map((c) => c.detail).join("; ") ?? "" }));
+    return { images: await pieceImages(await this.project(), piece, maxSide), remaining, total: pa.pieces.filter(isReadable).length, setAside };
+  }
+
+  /** Set a piece aside with the reason; it leaves the reading queue, the invariants and the blueprints. */
+  async dissectSkip(pieceId: string, reason: string, by: string): Promise<{ piece: Piece; remaining: number; genome: Genome }> {
+    const project = await this.project();
+    const piece = await skipPiece(project, pieceId, reason, by);
+    const genome = await this.build();
+    const pa = await projectAnatomy(project);
+    return { piece, remaining: pa.pieces.filter(needsReading).length, genome };
   }
 
   async dissectSubmit(pieceId: string, input: ReadingInput, reader: string): Promise<{ piece: Piece; rules: number; remaining: number; genome: Genome }> {
     const project = await this.project();
     const { piece, rules } = await submitReading(project, pieceId, input, reader);
     const genome = await this.build();
-    const remaining = genome.anatomy?.pieces.filter((p) => !p.reading).length ?? 0;
+    const remaining = (await projectAnatomy(project)).pieces.filter(needsReading).length;
     return { piece, rules, remaining, genome };
   }
 
@@ -173,7 +183,9 @@ export class GenomeService {
     const project = await this.project();
     const anatomy = await this.anatomy();
     if (!anatomy.pieces.length) throw new Error("No pieces yet: add images, videos or sites and extract them first.");
-    return { anatomy, sheet: await contactSheet(project, anatomy.pieces), genome: await project.loadGenome() };
+    const readable = { ...anatomy, pieces: anatomy.pieces.filter(isReadable) };
+    if (!readable.pieces.length) throw new Error("Every piece was set aside as not worth reading; add better references first.");
+    return { anatomy: readable, sheet: await contactSheet(project, readable.pieces), genome: await project.loadGenome() };
   }
 
   async conceptSubmit(input: ConceptInput, reader: string): Promise<{ concept: Concept; genome: Genome }> {
@@ -186,7 +198,7 @@ export class GenomeService {
   async blueprint(input: BlueprintInput): Promise<Blueprint> {
     const project = await this.project();
     const anatomy = await this.anatomy();
-    return buildBlueprint(project, await project.loadGenome(), input, anatomy);
+    return buildBlueprint(project, await project.loadGenome(), input, { ...anatomy, pieces: anatomy.pieces.filter(isReadable) });
   }
 
   async genome(): Promise<Genome> {

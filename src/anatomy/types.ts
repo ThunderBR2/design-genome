@@ -9,6 +9,9 @@
  * Readings (roles, intent, the "why") are inferred and written by the host model.
  */
 
+import type { GridSystem } from "./grid.js";
+import type { Triage } from "./triage.js";
+
 export interface Box {
   readonly x: number;
   readonly y: number;
@@ -85,6 +88,8 @@ export interface Anatomy {
   /** Distinct gap sizes and how they relate: the spacing rhythm. */
   readonly rhythm: { readonly values: readonly { readonly px: number; readonly rel: number; readonly count: number }[]; readonly unitPx: number | null; readonly multiples: readonly number[]; readonly description: string };
   readonly grid: GridReading | null;
+  /** Column / modular / baseline / proportional grid reading (absent in anatomies measured before 1.1). */
+  readonly grids?: GridSystem;
   /** Blocks from heaviest to lightest, and the size ratios between text levels. */
   readonly hierarchy: { readonly order: readonly number[]; readonly textScale: readonly { readonly block: number; readonly sizePx: number; readonly ratioToSmallest: number }[]; readonly description: string };
   readonly balance: { readonly centroid: { readonly x: number; readonly y: number }; readonly quadrants: { readonly tl: number; readonly tr: number; readonly bl: number; readonly br: number }; readonly symmetry: "centered" | "mirrored" | "asymmetric"; readonly description: string };
@@ -109,6 +114,8 @@ export interface PieceReadingElement {
 export interface PieceReading {
   readonly reader: string;
   readonly readAt: string;
+  /** What the reader identified the piece as before reading it, and how it checked the picture against the measurements. */
+  readonly whatItIs?: string;
   readonly pieceType: string;
   readonly summary: string;
   readonly elements: readonly PieceReadingElement[];
@@ -120,6 +127,8 @@ export interface PieceReading {
   readonly imagery?: string;
   readonly fragile: readonly string[];
   readonly corrections: readonly string[];
+  /** The reader's verdict on the measured grid: the system it sees and why the piece is set on it. */
+  readonly grid?: { readonly system: string; readonly agrees: boolean; readonly why?: string };
   /** Reusable rules the reader drew from this piece; they also join the genome as inferred rules. */
   readonly rules?: readonly { readonly topic?: string; readonly statement?: string; readonly polarity?: string; readonly confidence?: number }[];
 }
@@ -141,6 +150,12 @@ export interface Piece {
   /** Video shots: start time and duration. */
   readonly timeSec?: number;
   readonly anatomy: Anatomy;
+  /** The grid reading drawn alone (columns, rows, baseline, proportional lines). */
+  readonly gridOverlay?: string;
+  /** Automatic pre-check: what the piece is and whether it is worth reading. */
+  readonly triage?: Triage;
+  /** Set aside by the host model (or confirmed from the triage) with the reason. */
+  readonly skipped?: { readonly reason: string; readonly by: string; readonly at: string };
   readonly reading?: PieceReading;
 }
 
@@ -182,3 +197,8 @@ export interface Concept {
   readonly adaptation: readonly string[];
   readonly avoid: readonly string[];
 }
+
+/** A piece set aside by the triage or by the reader is not read, compared or reused. */
+export const isReadable = (p: Pick<Piece, "skipped" | "triage">): boolean => !p.skipped && p.triage?.status !== "skip";
+/** A readable piece that has no reading yet. */
+export const needsReading = (p: Pick<Piece, "skipped" | "triage" | "reading">): boolean => isReadable(p) && !p.reading;

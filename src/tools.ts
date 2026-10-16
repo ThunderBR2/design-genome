@@ -69,7 +69,8 @@ export const TOOLS: Record<string, (args: Args, ctx: ToolContext) => Promise<Too
       .map((s) => ({ collection: project.source(s.id).label ?? s.uri, items: project.sources.filter((c) => c.parent === s.id).length }));
     const failed = outcomes.filter((o) => o.status === "failed");
     const anatomy = (await svc.genome()).anatomy;
-    const unread = anatomy?.pieces.filter((p) => !p.reading).length ?? 0;
+    const unread = anatomy?.pieces.filter((p) => !p.reading && !p.skipped && p.triage !== "skip").length ?? 0;
+    const setAside = anatomy?.pieces.filter((p) => p.skipped || p.triage === "skip").length ?? 0;
     const pending = (await svc.visionPending()).length;
     return text({
       project: project.name,
@@ -77,7 +78,7 @@ export const TOOLS: Record<string, (args: Args, ctx: ToolContext) => Promise<Too
       ...(collected.length ? { collected } : {}),
       extracted: outcomes.filter((o) => o.status === "extracted").length,
       ...(failed.length ? { failed } : {}),
-      ...(anatomy?.pieces.length ? { anatomy: { pieces: anatomy.pieces.length, unread } } : {}),
+      ...(anatomy?.pieces.length ? { anatomy: { pieces: anatomy.pieces.length, unread, ...(setAside ? { setAsideByPreCheck: setAside } : {}) } } : {}),
       ...(unread ? { next: `${unread} piece(s) are measured but not dissected: call genome_dissect_request and read them one by one, then genome_concept_request.` } : pending ? { next: `${pending} source(s) have images without a vision reading: call genome_vision_request.` } : {}),
       genome: { colors: genome.color.tokens.length, typeStyles: genome.typography.styles.length, rules: genome.rules.length, openConflicts: genome.conflicts.filter((c) => !c.resolution).length },
     });
@@ -144,10 +145,11 @@ export const TOOLS: Record<string, (args: Args, ctx: ToolContext) => Promise<Too
   async genome_dissect_request(args, ctx) {
     const svc = svcFor(ctx, args);
     const req = await svc.dissectRequest(args.pieceId as string | undefined, (args.maxWidth as number | undefined) ?? 1280);
-    if (!req) return text("Every piece already has a reading. Pass a pieceId to read one again, or call genome_concept_request to read the project as a whole.");
+    if (!req) return text("Every readable piece already has a reading. Pass a pieceId to read one again, or call genome_concept_request to read the project as a whole.");
     const { piece } = req.images;
     const header = [
-      `Dissect piece ${piece.id} (${req.total - req.remaining} of ${req.total}; ${req.remaining} more after this one).`,
+      `Dissect piece ${piece.id} (${req.total - req.remaining} of ${req.total} readable; ${req.remaining} more after this one).`,
+      ...(req.setAside.length ? ["", `Set aside before reading (not worth dissecting): ${req.setAside.map((p) => `${p.id} — ${p.reason}`).join(" | ")}. Pass one as pieceId to look at it anyway.`] : []),
       "",
       DISSECT_PROMPT,
       "",
@@ -156,17 +158,17 @@ export const TOOLS: Record<string, (args: Args, ctx: ToolContext) => Promise<Too
       "Measurements:",
       anatomyText(piece),
       "",
-      `Submit with genome_dissect_submit { pieceId: "${piece.id}", pieceType, summary, elements, composition, whyItWorks, intent, typography, color, imagery, fragile, corrections, rules }.`,
+      `If it is worth reading, submit with genome_dissect_submit { pieceId: "${piece.id}", whatItIs, pieceType, summary, elements, grid, composition, whyItWorks, intent, typography, color, imagery, fragile, corrections, rules }. If not, call genome_dissect_skip { pieceId: "${piece.id}", reason }.`,
     ].join("\n");
-    return {
-      content: [
-        { type: "text", text: header },
-        { type: "text", text: "Image 1 — the piece" },
-        { type: "image", data: req.images.original.toString("base64"), mimeType: "image/jpeg" },
-        { type: "text", text: "Image 2 — measured anatomy" },
-        { type: "image", data: req.images.overlay.toString("base64"), mimeType: "image/jpeg" },
-      ],
-    };
+    const content: Content[] = [
+      { type: "text", text: header },
+      { type: "text", text: "Image 1 — the piece" },
+      { type: "image", data: req.images.original.toString("base64"), mimeType: "image/jpeg" },
+      { type: "text", text: "Image 2 — measured anatomy" },
+      { type: "image", data: req.images.overlay.toString("base64"), mimeType: "image/jpeg" },
+    ];
+    if (req.images.grid) content.push({ type: "text", text: "Image 3 — grid reading" }, { type: "image", data: req.images.grid.toString("base64"), mimeType: "image/jpeg" });
+    return { content };
   },
 
   async genome_dissect_submit(args, ctx) {
@@ -174,8 +176,15 @@ export const TOOLS: Record<string, (args: Args, ctx: ToolContext) => Promise<Too
     const { pieceId, project: _p, ...reading } = args;
     const { piece, rules, remaining, genome } = await svc.dissectSubmit(pieceId as string, reading as never, `${ctx.client} (host model)`);
     const confirmed = genome.rules.filter((r) => r.origin === "inferred" && r.support.status === "confirmed").length;
-    const next = genome.anatomy?.pieces.find((p) => !p.reading);
-    return text({ stored: piece.id, elements: piece.reading?.elements.length ?? 0, rules, inferredRulesConfirmedAcrossSources: confirmed, remainingPieces: remaining, next: next ? { pieceId: next.id, label: next.label } : "All pieces read: call genome_concept_request to read the project as a whole." });
+    const next = genome.anatomy?.pieces.find((p) => !p.reading && !p.skipped && p.triage !== "skip");
+    return text({ stored: piece.id, elements: piece.reading?.elements.length ?? 0, rules, inferredRulesConfirmedAcrossSources: confirmed, remainingPieces: remaining, next: next ? { pieceId: next.id, label: next.label } : "All readable pieces read: call genome_concept_request to read the project as a whole." });
+  },
+
+  async genome_dissect_skip(args, ctx) {
+    const svc = svcFor(ctx, args);
+    const { piece, remaining, genome } = await svc.dissectSkip(args.pieceId as string, args.reason as string, `${ctx.client} (host model)`);
+    const next = genome.anatomy?.pieces.find((p) => !p.reading && !p.skipped && p.triage !== "skip");
+    return text({ setAside: piece.id, reason: piece.skipped?.reason, remainingPieces: remaining, next: next ? { pieceId: next.id, label: next.label } : "All readable pieces read: call genome_concept_request to read the project as a whole." });
   },
 
   async genome_concept_request(args, ctx) {

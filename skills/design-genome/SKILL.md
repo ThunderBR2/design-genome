@@ -57,15 +57,28 @@ measured from the rendered boxes (exact); images and frames from pixels
 What measurement cannot say is why. You read it:
 
 1. `genome_dissect_request` gives you the piece, the same piece with its
-   anatomy drawn on it, and the numbers.
-2. Look like an art director and design teacher. For every numbered block
+   anatomy drawn on it, the grid reading drawn alone (column bands, rows,
+   baseline, thirds/golden lines, the columns each block spans), the
+   automatic pre-check and the numbers. Pieces the pre-check set aside (blank,
+   duplicate, content that was in the page code but not visible in the capture,
+   nothing composed) are listed and left out of the queue.
+2. **Identify before you read.** Say what the piece is and check the picture
+   against the numbered blocks. If the picture does not show what was measured
+   (hidden content, a layer on top, a loader, a cookie banner, a bot check) or
+   the piece adds nothing to the design language, call `genome_dissect_skip`
+   with the reason. Never describe a block you cannot see.
+3. Look like an art director and design teacher. For every visible block
    say its role, what it shows, its treatment and **why it is there, at that
-   position, size and distance**, citing the measurements. Then the
-   composition and its principles, why the piece works, its intent, what is
-   fragile, and reusable rules. Fix wrong merges or splits in `corrections`.
-3. `genome_dissect_submit`. Rules that other pieces or sources share become
-   confirmed. Repeat until every piece is read.
-4. `genome_concept_request` shows all pieces at once with their readings and
+   position, size and distance**, citing the measurements and grid spans. Say
+   which grid the piece is built on (web/UI columns, modular, manuscript,
+   baseline, thirds/golden, or free) and whether the measured grid is right.
+   Then the composition and its principles, why the piece works, its intent,
+   what is fragile, and reusable rules. Fix wrong merges or splits in
+   `corrections`.
+4. `genome_dissect_submit` (with `whatItIs` and `grid`). Rules that other
+   pieces or sources share become confirmed. Repeat until every readable
+   piece is read.
+5. `genome_concept_request` shows all pieces at once with their readings and
    the measured constants (what never changes across pieces) and variations.
    Explain the project as its creative director would: big idea, concept,
    why it is this way, constants, variables, grammar, signature moves, how to

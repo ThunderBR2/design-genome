@@ -48,7 +48,10 @@ export const extractSources = async (project: Project, sourceIds: readonly strin
     const plan: Extractor[] = [PRIMARY[source.kind]];
     if (options.vision && VISION_KINDS.includes(source.kind)) plan.push(visionExtractor);
     for (const extractor of plan) {
-      if (!options.force && (await project.hasExtraction(id, extractor.name))) {
+      const stored = await project.extractionVersion(id, extractor.name);
+      const outdated = stored !== null && extractor.recaptureBelow !== undefined && compareVersions(stored, extractor.recaptureBelow) < 0;
+      if (outdated) log(`${extractor.name}: ${source.label ?? source.uri} was captured by ${stored}; capturing again with ${extractor.version}`);
+      if (!options.force && stored !== null && !outdated) {
         outcomes.push({ sourceId: id, extractor: extractor.name, status: "cached" });
         continue;
       }
@@ -71,3 +74,13 @@ export const extractSources = async (project: Project, sourceIds: readonly strin
 
 export { webExtractor, imageExtractor, videoExtractor, documentExtractor, figmaExtractor, visionExtractor };
 export type { Extractor };
+
+/** -1, 0 or 1 for dotted numeric versions. */
+export const compareVersions = (a: string, b: string): number => {
+  const pa = a.split(".").map(Number), pb = b.split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
+    if (d) return Math.sign(d);
+  }
+  return 0;
+};
